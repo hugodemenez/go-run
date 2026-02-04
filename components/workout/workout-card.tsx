@@ -9,8 +9,7 @@ import {
   StyleSheet,
   TextInput,
   View,
-  type NativeSyntheticEvent,
-  type TextInputKeyPressEventData,
+  type TextInputKeyPressEvent,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
@@ -18,11 +17,14 @@ import {
 
 import { useThemeColor } from '@/hooks/use-theme-color';
 
+import type { Workout } from '@/types/workout';
+
 export type WorkoutCardState = 'input' | 'pending' | 'completed' | 'error';
 
 export type WorkoutCardProps = {
   state: WorkoutCardState;
   style?: ViewStyle;
+  workout?: Workout;
   /** Input state: current value */
   value?: string;
   /** Input state: change handler */
@@ -65,6 +67,7 @@ function IconWrap({
 export function WorkoutCard({
   state,
   style,
+  workout,
   value = '',
   onChangeText,
   placeholder = 'Describe workout',
@@ -100,23 +103,31 @@ export function WorkoutCard({
   const inputRef = useRef<TextInput>(null);
 
   const isInput = state === 'input';
+  const resolvedTitle = title ?? workout?.title;
+  const resolvedSubtitle = subtitle ?? workout?.description;
+
   const displayValue = isInput
     ? ''
     : (state === 'pending'
-        ? (title ?? 'Easy run') + (subtitle != null && subtitle !== '' ? '\n' + subtitle : '')
+        ? (resolvedTitle ?? 'Easy run') +
+          (resolvedSubtitle != null && resolvedSubtitle !== '' ? '\n' + resolvedSubtitle : '')
         : state === 'completed'
-          ? (title ?? 'Running') + (subtitle != null && subtitle !== '' ? '\n' + subtitle : '')
-          : (title ?? '10k') + (errorMessage != null && errorMessage !== '' ? '\n' + errorMessage : ''));
+          ? (resolvedTitle ?? 'Running') +
+            (resolvedSubtitle != null && resolvedSubtitle !== '' ? '\n' + resolvedSubtitle : '')
+          : (resolvedTitle ?? '10k') +
+            (errorMessage != null && errorMessage !== '' ? '\n' + errorMessage : ''));
   const hasSecondLine =
     !isInput &&
-    (((state === 'pending' || state === 'completed') && subtitle != null && subtitle !== '') ||
+    (((state === 'pending' || state === 'completed') &&
+      resolvedSubtitle != null &&
+      resolvedSubtitle !== '') ||
       (state === 'error' && errorMessage != null && errorMessage !== ''));
   const inputColor = state === 'error' ? ERROR_COLOR : titleColor;
   const inputEditable = isInput;
 
   const { onKeyPress: textInputOnKeyPress, ...restTextInputProps } = textInputProps ?? {};
 
-  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+  const handleKeyPress = (e: TextInputKeyPressEvent) => {
     if (e.nativeEvent.key === 'Escape') {
       inputRef.current?.blur();
       if (Platform.OS !== 'web') {
