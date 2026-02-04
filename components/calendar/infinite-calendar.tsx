@@ -75,6 +75,7 @@ function DayCell({
   onCardCycleIcon,
   onCardEdit,
   showDayLabel,
+  fillWidth,
 }: {
   day: DayInfo;
   cellWidth: number;
@@ -88,6 +89,7 @@ function DayCell({
   onCardCycleIcon: (weekIndex: number, dayIndex: number, workout?: Workout) => void;
   onCardEdit: (weekIndex: number, dayIndex: number, workout?: Workout) => void;
   showDayLabel?: boolean;
+  fillWidth?: boolean;
 }) {
   const TODAY_ACCENT = '#30A46C';
   const borderColor = useThemeColor(
@@ -110,17 +112,36 @@ function DayCell({
     { light: '#1a1a1a', dark: '#ffffff' },
     'text'
   );
+  const placeholderBorderColor = useThemeColor(
+    { light: '#E0E0E0', dark: '#3A3A3C' },
+    'background'
+  );
   const dayLabel = showDayLabel ? DAY_LABELS[day.date.getDay()] : null;
+
+  const weekdayShort = day.date.toLocaleString('default', { weekday: 'short' });
+  const monthShort = day.date.toLocaleString('default', { month: 'short' });
+  const weekdayColor = day.isToday ? TODAY_ACCENT : firstOfMonthColor;
+
+  const hasCardContent =
+    cardData?.state === 'input' ||
+    (workout == null &&
+      (cardData?.state === 'pending' ||
+        cardData?.state === 'completed' ||
+        cardData?.state === 'error')) ||
+    workout != null;
+  const showMobilePlaceholder = showDayLabel && !hasCardContent;
 
   return (
     <Pressable
       style={[
         styles.cell,
         styles.dayCell,
-        showDayLabel && styles.dayCellFill,
+        showDayLabel && styles.dayCellFillMobile,
+        showDayLabel && styles.dayCellMobile,
+        fillWidth && styles.cellFillWidth,
         {
-          width: cellWidth,
-          borderRightColor: borderColor,
+          width: fillWidth ? undefined : cellWidth,
+          ...(showDayLabel ? { borderRightWidth: 0 } : { borderRightColor: borderColor }),
           backgroundColor: day.isToday ? todayCellBg : cellBg,
         },
       ]}
@@ -137,37 +158,68 @@ function DayCell({
           day.isToday && { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6 },
         ]}
       >
-        {day.isToday && (
+        {day.isToday && !showDayLabel && (
           <IconSymbol name="calendar" size={14} color={TODAY_ACCENT} style={styles.todayIcon} />
         )}
-        {dayLabel != null && (
-          <ThemedText
-            style={[
-              styles.dayLabel,
-              { color: day.isToday ? TODAY_ACCENT : dayNumberColor },
-              day.isToday && styles.dayNumberToday,
-            ]}
-          >
-            {dayLabel}{' '}
-          </ThemedText>
+        {showDayLabel ? (
+          <>
+            <ThemedText
+              style={[
+                styles.dayLabelMobile,
+                { color: weekdayColor },
+              ]}
+            >
+              {weekdayShort}{' '}
+            </ThemedText>
+            <ThemedText
+              style={[
+                styles.dayNumberMobile,
+                { color: dayNumberColor },
+              ]}
+            >
+              {day.dayOfMonth}
+            </ThemedText>
+            <ThemedText
+              style={[
+                styles.dayLabelMobile,
+                { color: dayNumberColor },
+              ]}
+            >
+              {' '}{monthShort}
+            </ThemedText>
+          </>
+        ) : (
+          <>
+            {dayLabel != null && (
+              <ThemedText
+                style={[
+                  styles.dayLabel,
+                  { color: day.isToday ? TODAY_ACCENT : dayNumberColor },
+                  day.isToday && styles.dayNumberToday,
+                ]}
+              >
+                {dayLabel}{' '}
+              </ThemedText>
+            )}
+            <ThemedText
+              style={[
+                styles.dayNumber,
+                {
+                  color: day.isToday
+                    ? TODAY_ACCENT
+                    : day.dayOfMonth === 1
+                      ? firstOfMonthColor
+                      : dayNumberColor,
+                },
+                day.isToday && styles.dayNumberToday,
+              ]}
+            >
+              {day.dayOfMonth === 1
+                ? `${day.date.toLocaleString('default', { month: 'short' })} ${day.dayOfMonth}`
+                : day.dayOfMonth}
+            </ThemedText>
+          </>
         )}
-        <ThemedText
-          style={[
-            styles.dayNumber,
-            {
-              color: day.isToday
-                ? TODAY_ACCENT
-                : day.dayOfMonth === 1
-                  ? firstOfMonthColor
-                  : dayNumberColor,
-            },
-            day.isToday && styles.dayNumberToday,
-          ]}
-        >
-          {day.dayOfMonth === 1
-            ? `${day.date.toLocaleString('default', { month: 'short' })} ${day.dayOfMonth}`
-            : day.dayOfMonth}
-        </ThemedText>
       </View>
       {cardData?.state === 'input' && (
         <WorkoutCard
@@ -221,11 +273,29 @@ function DayCell({
           onTextPress={() => onCardEdit(weekIndex, dayIndex, workout)}
         />
       )}
+      {showMobilePlaceholder && (
+        <View
+          style={[
+            styles.cellPlaceholder,
+            {
+              borderColor: placeholderBorderColor,
+            },
+          ]}
+        />
+      )}
     </Pressable>
   );
 }
 
-function SummaryCell({ weekIndex, cellWidth }: { weekIndex: number; cellWidth: number }) {
+function SummaryCell({
+  weekIndex,
+  cellWidth,
+  fillWidth,
+}: {
+  weekIndex: number;
+  cellWidth: number;
+  fillWidth?: boolean;
+}) {
   const borderColor = useThemeColor(
     { light: '#E0E0E0', dark: '#3A3A3C' },
     'background'
@@ -246,9 +316,10 @@ function SummaryCell({ weekIndex, cellWidth }: { weekIndex: number; cellWidth: n
       style={[
         styles.cell,
         styles.summaryCell,
+        fillWidth && styles.cellFillWidth,
         {
-          width: cellWidth,
-          borderRightColor: borderColor,
+          width: fillWidth ? undefined : cellWidth,
+          ...(fillWidth ? { borderRightWidth: 0 } : { borderRightColor: borderColor }),
           backgroundColor: summaryBg,
         },
       ]}
@@ -297,10 +368,7 @@ function WeekRow({
         style={[
           styles.row,
           styles.weekColumn,
-          {
-            height: MOBILE_ROW_HEIGHT,
-            borderBottomColor: rowBorderColor,
-          },
+          styles.mobileRow,
         ]}
       >
         {days.map((day, i) => (
@@ -308,6 +376,7 @@ function WeekRow({
             <DayCell
               day={day}
               cellWidth={cellWidth}
+              fillWidth
               weekIndex={weekIndex}
               dayIndex={i}
               cardData={cellCards[cellKey(weekIndex, i)]}
@@ -322,7 +391,7 @@ function WeekRow({
           </View>
         ))}
         <View style={styles.mobileCellWrap}>
-          <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} />
+          <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} fillWidth />
         </View>
       </View>
     );
@@ -588,14 +657,13 @@ export function InfiniteCalendar() {
 
   const keyExtractor = useCallback((item: number) => `week-${item}`, []);
 
-  const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
-      length: rowHeight,
-      offset: rowHeight * index,
+      length: ROW_HEIGHT,
+      offset: ROW_HEIGHT * index,
       index,
     }),
-    [rowHeight]
+    []
   );
 
   const ListHeader = useMemo(
@@ -649,11 +717,12 @@ export function InfiniteCalendar() {
         data={weekIndices}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        getItemLayout={getItemLayout}
-        initialScrollIndex={scrollToIndex}
+        getItemLayout={isMobile ? undefined : getItemLayout}
+        initialScrollIndex={isMobile ? undefined : scrollToIndex}
         ListHeaderComponent={ListHeader}
         stickyHeaderIndices={isMobile ? undefined : [0]}
         style={[styles.list, { backgroundColor: listBg }]}
+        contentContainerStyle={isMobile ? styles.listContentMobile : undefined}
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
       />
@@ -667,6 +736,9 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+  },
+  listContentMobile: {
+    width: '100%',
   },
   chartWrap: {
     paddingBottom: 8,
@@ -694,14 +766,30 @@ const styles = StyleSheet.create({
   weekColumn: {
     flexDirection: 'column',
   },
+  mobileRow: {
+    width: '100%',
+    overflow: 'hidden',
+    borderBottomWidth: 0,
+  },
   mobileCellWrap: {
-    height: MOBILE_CELL_HEIGHT,
+    width: '100%',
+    minHeight: MOBILE_CELL_HEIGHT,
     flexDirection: 'column',
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
+  },
+  cellFillWidth: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: 'stretch',
   },
   dayCellFill: {
     flex: 1,
     minHeight: MOBILE_CELL_HEIGHT,
+  },
+  dayCellFillMobile: {
+    minHeight: MOBILE_CELL_HEIGHT,
+    alignSelf: 'stretch',
   },
   cell: {
     justifyContent: 'center',
@@ -713,6 +801,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingTop: 8,
     paddingHorizontal: 8,
+  },
+  dayCellMobile: {
+    paddingBottom: 8,
   },
   summaryCell: {
     // backgroundColor set per-theme in component
@@ -737,13 +828,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
   },
+  dayLabelMobile: {
+    fontFamily: 'Inter',
+    fontSize: 15,
+    fontWeight: '600',
+  },
   dayNumber: {
     fontFamily: 'Inter',
     fontSize: 13,
     fontWeight: '400',
   },
+  dayNumberMobile: {
+    fontFamily: 'Inter',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   dayNumberToday: {
     fontWeight: '400',
+  },
+  cellPlaceholder: {
+    marginTop: 8,
+    alignSelf: 'stretch',
+    flex: 1,
+    minHeight: 80,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: 8,
   },
   todayIcon: {
     marginRight: 4,
