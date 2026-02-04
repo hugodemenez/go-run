@@ -1,12 +1,15 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Keyboard,
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
   type TextInputKeyPressEvent,
@@ -101,6 +104,12 @@ export function WorkoutCard({
   );
 
   const inputRef = useRef<TextInput>(null);
+  const enterOpacity = useRef(new Animated.Value(state === 'input' ? 0 : 1)).current;
+  const enterTranslate = useRef(new Animated.Value(state === 'input' ? 6 : 0)).current;
+  const enterScale = useRef(new Animated.Value(state === 'input' ? 0.98 : 1)).current;
+  const statePulse = useRef(new Animated.Value(1)).current;
+  const didMountRef = useRef(false);
+  const previousStateRef = useRef<WorkoutCardState | null>(null);
 
   const isInput = state === 'input';
   const resolvedTitle = title ?? workout?.title;
@@ -108,20 +117,20 @@ export function WorkoutCard({
 
   const displayValue = isInput
     ? ''
-    : (state === 'pending'
-        ? (resolvedTitle ?? 'Easy run') +
-          (resolvedSubtitle != null && resolvedSubtitle !== '' ? '\n' + resolvedSubtitle : '')
-        : state === 'completed'
-          ? (resolvedTitle ?? 'Running') +
-            (resolvedSubtitle != null && resolvedSubtitle !== '' ? '\n' + resolvedSubtitle : '')
-          : (resolvedTitle ?? '10k') +
-            (errorMessage != null && errorMessage !== '' ? '\n' + errorMessage : ''));
-  const hasSecondLine =
+    : state === 'pending'
+      ? resolvedTitle ?? 'Easy run'
+      : state === 'completed'
+        ? resolvedTitle ?? 'Running'
+        : resolvedTitle ?? '10k';
+  const secondLineText =
     !isInput &&
-    (((state === 'pending' || state === 'completed') &&
-      resolvedSubtitle != null &&
-      resolvedSubtitle !== '') ||
-      (state === 'error' && errorMessage != null && errorMessage !== ''));
+    ((state === 'pending' || state === 'completed') &&
+    resolvedSubtitle != null &&
+    resolvedSubtitle !== ''
+      ? resolvedSubtitle
+      : state === 'error' && errorMessage != null && errorMessage !== ''
+        ? errorMessage
+        : null);
   const inputColor = state === 'error' ? ERROR_COLOR : titleColor;
   const inputEditable = isInput;
 
@@ -137,7 +146,57 @@ export function WorkoutCard({
     textInputOnKeyPress?.(e);
   };
 
-  const content = (
+  useEffect(() => {
+    if (state !== 'input') {
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(enterOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(enterTranslate, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(enterScale, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [enterOpacity, enterScale, enterTranslate]);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      previousStateRef.current = state;
+      return;
+    }
+
+    const previousState = previousStateRef.current;
+    previousStateRef.current = state;
+
+    if (previousState === 'input' && state === 'pending') {
+      return;
+    }
+
+    statePulse.setValue(0.98);
+    Animated.timing(statePulse, {
+      toValue: 1,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [state, statePulse]);
+
+  const titleContent = (
     <TextInput
       ref={inputRef}
       value={isInput ? value : displayValue}
@@ -145,7 +204,7 @@ export function WorkoutCard({
       placeholder={isInput ? placeholder : undefined}
       placeholderTextColor={mutedColor}
       editable={inputEditable}
-      multiline={hasSecondLine}
+      multiline={false}
       underlineColorAndroid="transparent"
       onKeyPress={isInput ? handleKeyPress : undefined}
       style={[
@@ -158,51 +217,84 @@ export function WorkoutCard({
     />
   );
 
+  const showSubtitleRow = !isInput && secondLineText != null;
+
   return (
-    <View style={[styles.card, style, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-      <View style={styles.row}>
-        <View style={styles.iconColumn}>
-          <IconWrap onPress={onIconPress}>
-            {state === 'pending' || state === 'input' ? (
-              <MaterialCommunityIcons
-                name="dots-circle"
-                size={ICON_SIZE + 8}
-                color={mutedColor}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.iconCircle,
-                  state === 'completed' && styles.successCircle,
-                  state === 'error' && styles.errorCircle,
-                  state === 'completed' && { backgroundColor: successColor },
-                ]}
-              >
-                <MaterialIcons
-                  name={state === 'completed' ? 'check' : 'close'}
-                  size={ICON_SIZE}
-                  color="#fff"
+    <Animated.View
+      style={[
+        styles.card,
+        style,
+        {
+          backgroundColor: cardBg,
+          borderColor: cardBorder,
+          opacity: enterOpacity,
+          transform: [
+            { translateY: enterTranslate },
+            { scale: Animated.multiply(enterScale, statePulse) },
+          ],
+        },
+      ]}
+    >
+      <View style={styles.grid}>
+        <View style={styles.row}>
+          <View style={styles.iconColumn}>
+            <IconWrap onPress={onIconPress}>
+              {state === 'pending' || state === 'input' ? (
+                <MaterialCommunityIcons
+                  name="dots-circle"
+                  size={ICON_SIZE + 8}
+                  color={mutedColor}
                 />
-              </View>
+              ) : (
+                <View
+                  style={[
+                    styles.iconCircle,
+                    state === 'completed' && styles.successCircle,
+                    state === 'error' && styles.errorCircle,
+                    state === 'completed' && { backgroundColor: successColor },
+                  ]}
+                >
+                  <MaterialIcons
+                    name={state === 'completed' ? 'check' : 'close'}
+                    size={ICON_SIZE}
+                    color="#fff"
+                  />
+                </View>
+              )}
+            </IconWrap>
+          </View>
+          {inputLoading && isInput && (
+            <ActivityIndicator
+              size="small"
+              color={mutedColor}
+              style={styles.leftIcon}
+            />
+          )}
+          <View style={styles.titleCell}>
+            {!isInput && onTextPress ? (
+              <Pressable style={styles.titleCellInner} onPress={onTextPress}>
+                {titleContent}
+              </Pressable>
+            ) : (
+              <View style={styles.titleCellInner}>{titleContent}</View>
             )}
-          </IconWrap>
+          </View>
         </View>
-        {inputLoading && isInput && (
-          <ActivityIndicator
-            size="small"
-            color={mutedColor}
-            style={styles.leftIcon}
-          />
-        )}
-        {!isInput && onTextPress ? (
-          <Pressable style={styles.inputWrapper} onPress={onTextPress}>
-            {content}
-          </Pressable>
-        ) : (
-          <View style={styles.inputWrapper}>{content}</View>
+        {showSubtitleRow && (
+          <View style={styles.row}>
+            <View style={styles.gridSpacer} />
+            <View style={styles.subtitleCell}>
+              <Text
+                style={[styles.subtitle, { color: mutedColor }]}
+                numberOfLines={1}
+              >
+                {secondLineText}
+              </Text>
+            </View>
+          </View>
         )}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -215,6 +307,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     elevation: 2,
   },
+  grid: {
+    flexDirection: 'column',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -222,8 +317,23 @@ const styles = StyleSheet.create({
   },
   iconColumn: {
     width: ICON_SIZE + 8,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridSpacer: {
+    width: ICON_SIZE + 8,
+  },
+  titleCell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  titleCellInner: {
+    flex: 1,
+    minWidth: 0,
+  },
+  subtitleCell: {
+    flex: 1,
+    minWidth: 0,
   },
   leftIcon: {
     marginRight: 0,
@@ -239,13 +349,14 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     outlineWidth: 0,
   },
+  subtitle: {
+    fontFamily: 'Inter',
+    fontSize: 12,
+    fontWeight: '400',
+    opacity: 0.8,
+  },
   inputWithIcon: {
     marginLeft: 0,
-  },
-  inputWrapper: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: 'center',
   },
   iconCircle: {
     width: ICON_SIZE + 8,
