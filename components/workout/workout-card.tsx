@@ -8,7 +8,6 @@ import {
   Keyboard,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -27,6 +26,7 @@ export type WorkoutCardState = 'input' | 'pending' | 'completed' | 'error';
 export type WorkoutCardProps = {
   state: WorkoutCardState;
   style?: ViewStyle;
+  className?: string;
   workout?: Workout;
   /** Input state: current value */
   value?: string;
@@ -48,11 +48,11 @@ export type WorkoutCardProps = {
   onIconPress?: () => void;
   /** Optional press handler for the title/subtitle text. When set, the text block is pressable (e.g. to go back to input mode). */
   onTextPress?: () => void;
+  /** Optional handler when the delete button is pressed. When set, a delete button is shown on card hover. */
+  onDelete?: () => void;
 };
 
-const CARD_RADIUS = 8;
 const ICON_SIZE = 8; // 2x smaller than before (was 24)
-const ERROR_COLOR = '#ef4444';
 
 function IconWrap({
   onPress,
@@ -70,6 +70,7 @@ function IconWrap({
 export function WorkoutCard({
   state,
   style,
+  className,
   workout,
   value = '',
   onChangeText,
@@ -81,28 +82,12 @@ export function WorkoutCard({
   textInputProps,
   onIconPress,
   onTextPress,
+  onDelete,
 }: WorkoutCardProps) {
-  const cardBg = useThemeColor(
-    { light: '#F6F6F6', dark: '#2C2C2E' },
-    'background'
-  );
-  const cardBorder = useThemeColor(
-    { light: '#F0F0F0', dark: '#3A3A3C' },
-    'background'
-  );
-  const titleColor = useThemeColor(
-    { light: '#333333', dark: '#FFFFFF' },
-    'text'
-  );
   const mutedColor = useThemeColor(
     { light: '#999999', dark: '#BBBBBB' },
     'icon'
   );
-  const successColor = useThemeColor(
-    { light: '#28A745', dark: '#4CAF50' },
-    'tint'
-  );
-
   const inputRef = useRef<TextInput>(null);
   const enterOpacity = useRef(new Animated.Value(state === 'input' ? 0 : 1)).current;
   const enterTranslate = useRef(new Animated.Value(state === 'input' ? 6 : 0)).current;
@@ -131,7 +116,6 @@ export function WorkoutCard({
       : state === 'error' && errorMessage != null && errorMessage !== ''
         ? errorMessage
         : null);
-  const inputColor = state === 'error' ? ERROR_COLOR : titleColor;
   const inputEditable = isInput;
 
   const { onKeyPress: textInputOnKeyPress, ...restTextInputProps } = textInputProps ?? {};
@@ -207,26 +191,25 @@ export function WorkoutCard({
       multiline={false}
       underlineColorAndroid="transparent"
       onKeyPress={isInput ? handleKeyPress : undefined}
-      style={[
-        styles.input,
-        inputLoading ? styles.inputWithIcon : null,
-        { color: inputColor },
-        Platform.OS === 'web' && ({ outlineWidth: 0, outline: 'none' } as TextStyle),
-      ]}
+      className={`flex-1 text-sm font-normal py-0.5 px-0 min-h-6 border-0 ${state === 'error' ? 'text-red-500' : 'text-gray-800 dark:text-white'} ${inputLoading ? 'ml-0' : ''}`}
+      style={Platform.OS === 'web' ? ({ outlineWidth: 0, outline: 'none' } as TextStyle) : undefined}
       {...(isInput ? restTextInputProps : {})}
     />
   );
 
   const showSubtitleRow = !isInput && secondLineText != null;
 
+  const rootClassName = [
+    'group rounded-lg border border-gray-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 py-1 px-4 justify-center shadow-sm',
+    className,
+  ].filter(Boolean).join(' ');
+
   return (
     <Animated.View
+      className={rootClassName}
       style={[
-        styles.card,
         style,
         {
-          backgroundColor: cardBg,
-          borderColor: cardBorder,
           opacity: enterOpacity,
           transform: [
             { translateY: enterTranslate },
@@ -235,24 +218,23 @@ export function WorkoutCard({
         },
       ]}
     >
-      <View style={styles.grid}>
-        <View style={styles.row}>
-          <View style={styles.iconColumn}>
+      <View className="flex flex-col">
+        <View className="flex flex-row items-center gap-3">
+          <View className="w-4 items-center justify-center">
             <IconWrap onPress={onIconPress}>
               {state === 'pending' || state === 'input' ? (
                 <MaterialCommunityIcons
                   name="dots-circle"
                   size={ICON_SIZE + 8}
-                  color={mutedColor}
+                  color={mutedColor as string}
                 />
               ) : (
                 <View
-                  style={[
-                    styles.iconCircle,
-                    state === 'completed' && styles.successCircle,
-                    state === 'error' && styles.errorCircle,
-                    state === 'completed' && { backgroundColor: successColor },
-                  ]}
+                  className={`w-4 h-4 rounded-full items-center justify-center ${
+                    state === 'completed'
+                      ? 'bg-green-600 dark:bg-green-500'
+                      : 'bg-red-500'
+                  }`}
                 >
                   <MaterialIcons
                     name={state === 'completed' ? 'check' : 'close'}
@@ -266,26 +248,38 @@ export function WorkoutCard({
           {inputLoading && isInput && (
             <ActivityIndicator
               size="small"
-              color={mutedColor}
-              style={styles.leftIcon}
+              color={mutedColor as string}
+              className="mr-0"
             />
           )}
-          <View style={styles.titleCell}>
+          <View className="flex-1 min-w-0">
             {!isInput && onTextPress ? (
-              <Pressable style={styles.titleCellInner} onPress={onTextPress}>
+              <Pressable className="flex-1 min-w-0" onPress={onTextPress}>
                 {titleContent}
               </Pressable>
             ) : (
-              <View style={styles.titleCellInner}>{titleContent}</View>
+              <View className="flex-1 min-w-0">{titleContent}</View>
             )}
           </View>
+          {onDelete && (
+            <Pressable
+              onPress={onDelete}
+              className="opacity-0 group-hover:opacity-100 transition-opacity self-center p-1 rounded active:opacity-70"
+            >
+              <MaterialIcons
+                name="delete"
+                size={20}
+                color={mutedColor as string}
+              />
+            </Pressable>
+          )}
         </View>
         {showSubtitleRow && (
-          <View style={styles.row}>
-            <View style={styles.gridSpacer} />
-            <View style={styles.subtitleCell}>
+          <View className="flex flex-row items-center gap-3">
+            <View className="w-4" />
+            <View className="flex-1 min-w-0">
               <Text
-                style={[styles.subtitle, { color: mutedColor }]}
+                className="text-xs font-normal text-gray-500 dark:text-gray-400 opacity-80"
                 numberOfLines={1}
               >
                 {secondLineText}
@@ -297,76 +291,3 @@ export function WorkoutCard({
     </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    borderRadius: CARD_RADIUS,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 4,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    elevation: 2,
-  },
-  grid: {
-    flexDirection: 'column',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iconColumn: {
-    width: ICON_SIZE + 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gridSpacer: {
-    width: ICON_SIZE + 8,
-  },
-  titleCell: {
-    flex: 1,
-    minWidth: 0,
-  },
-  titleCellInner: {
-    flex: 1,
-    minWidth: 0,
-  },
-  subtitleCell: {
-    flex: 1,
-    minWidth: 0,
-  },
-  leftIcon: {
-    marginRight: 0,
-  },
-  input: {
-    flex: 1,
-    fontFamily: 'Inter',
-    fontSize: 14,
-    fontWeight: '400',
-    paddingVertical: 2,
-    paddingHorizontal: 0,
-    minHeight: 24,
-    borderWidth: 0,
-    outlineWidth: 0,
-  },
-  subtitle: {
-    fontFamily: 'Inter',
-    fontSize: 12,
-    fontWeight: '400',
-    opacity: 0.8,
-  },
-  inputWithIcon: {
-    marginLeft: 0,
-  },
-  iconCircle: {
-    width: ICON_SIZE + 8,
-    height: ICON_SIZE + 8,
-    borderRadius: (ICON_SIZE + 8) / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  successCircle: {},
-  errorCircle: {
-    backgroundColor: ERROR_COLOR,
-  },
-});

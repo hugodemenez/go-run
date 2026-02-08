@@ -4,12 +4,7 @@ import React, {
   useContext,
   useRef,
 } from 'react';
-import {
-  LayoutRectangle,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { LayoutRectangle, useWindowDimensions } from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -19,7 +14,6 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
-import { useThemeColor } from '@/hooks/use-theme-color';
 
 const TOOLTIP_HEIGHT = 40;
 const TOOLTIP_MIN_WIDTH = 80;
@@ -55,15 +49,6 @@ type TooltipProviderProps = {
 
 export function TooltipProvider({ children }: TooltipProviderProps) {
   const { width: screenWidth } = useWindowDimensions();
-
-  const tooltipBg = useThemeColor(
-    { light: '#1a1a1a', dark: '#2a2a2a' },
-    'background'
-  );
-  const tooltipTextColor = useThemeColor(
-    { light: '#ffffff', dark: '#ffffff' },
-    'text'
-  );
 
   // Use refs to track state without causing re-renders
   const isVisibleRef = useRef(false);
@@ -230,52 +215,17 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
     <TooltipContext.Provider value={contextValue}>
       {children}
       <Animated.View
-        style={[
-          styles.tooltip,
-          { backgroundColor: tooltipBg },
-          animatedStyle,
-        ]}
+        className="absolute top-0 left-0 h-10 min-w-20 rounded-lg px-3 py-1.5 justify-center items-start bg-tooltip z-[9999] shadow-md"
+        style={animatedStyle}
         pointerEvents="none"
       >
-        <ThemedText style={[styles.tooltipLabel, { color: tooltipTextColor }]}>
+        <ThemedText className="text-[11px] font-medium opacity-80 text-left text-tooltip-foreground">
           {label}
         </ThemedText>
-        <ThemedText style={[styles.tooltipValue, { color: tooltipTextColor }]}>
+        <ThemedText className="text-[13px] font-semibold text-left text-tooltip-foreground">
           {value}
         </ThemedText>
       </Animated.View>
     </TooltipContext.Provider>
   );
 }
-
-const styles = StyleSheet.create({
-  tooltip: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    height: TOOLTIP_HEIGHT,
-    minWidth: TOOLTIP_MIN_WIDTH,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    zIndex: 9999,
-  },
-  tooltipLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    opacity: 0.8,
-    textAlign: 'left',
-  },
-  tooltipValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'left',
-  },
-});

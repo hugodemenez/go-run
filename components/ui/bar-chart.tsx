@@ -8,7 +8,6 @@ import {
   PanResponder,
   Platform,
   Pressable,
-  StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -93,24 +92,19 @@ function BarItem({
     <>
       <View
         pointerEvents="none"
-        style={[
-          styles.barBackground,
-          {
-            width: barWidth,
-            backgroundColor: isActive || isSelected ? barBackground : 'transparent',
-          },
-        ]}
+        className="absolute bottom-0 h-full"
+        style={{
+          width: barWidth,
+          backgroundColor: isActive || isSelected ? barBackground : 'transparent',
+        }}
       />
       <Animated.View
-        style={[
-          styles.bar,
-          {
-            width: barWidth,
-            height: animatedHeight,
-            backgroundColor: barFill,
-            borderRadius: 0,
-          },
-        ]}
+        className="self-center"
+        style={{
+          width: barWidth,
+          height: animatedHeight,
+          backgroundColor: barFill,
+        }}
       />
     </>
   );
@@ -362,13 +356,15 @@ export function BarChart({
 
   return (
     <Pressable
-      style={[styles.container, { width }]}
+      className="px-4 pt-3 pb-2"
+      style={{ width }}
       onPress={() => {
         if (selectedRangeRef.current) clearSelection();
       }}
     >
       <View
-        style={[styles.chart, { height: BAR_CHART_HEIGHT }]}
+        className="flex-row items-end justify-start relative"
+        style={{ height: BAR_CHART_HEIGHT }}
         onLayout={handleChartLayout}
         {...(isWeb ? { onMouseLeave: handleChartMouseLeave } : {})}
         {...panResponder.panHandlers}
@@ -387,10 +383,8 @@ export function BarChart({
           return (
             <Pressable
               key={`${point.label}-${index}`}
-              style={[
-                styles.barWrapper,
-                { width: barWidth, marginRight: index < data.length - 1 ? gap : 0 },
-              ]}
+              className={`items-center justify-end h-full relative ${index < data.length - 1 ? 'mr-1.5' : ''}`}
+              style={{ width: barWidth }}
               onLayout={(e) => handleBarLayout(index, e)}
               onPress={() => handlePress(index)}
               // Web-only hover events via props spreading
@@ -415,31 +409,3 @@ export function BarChart({
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  chart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    position: 'relative',
-  },
-  barWrapper: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    height: '100%',
-    position: 'relative',
-  },
-  barBackground: {
-    position: 'absolute',
-    bottom: 0,
-    height: '100%',
-  },
-  bar: {
-    alignSelf: 'center',
-  },
-});

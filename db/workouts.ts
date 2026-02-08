@@ -233,3 +233,14 @@ export async function updateWorkoutInDB({
     throw error;
   }
 }
+
+export async function deleteWorkoutInDB(id: number): Promise<void> {
+  try {
+    await ensureWorkoutsTable();
+    const db = await getDb();
+    await db.runAsync('DELETE FROM workouts WHERE id = ?', id);
+  } catch (error) {
+    console.error('deleteWorkoutInDB failed', { error, id });
+    throw error;
+  }
+}

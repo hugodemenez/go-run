@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { Workout } from '@/types/workout';
 
-import { createWorkoutInDB, fetchWorkoutsFromDB, updateWorkoutInDB } from '@/db/workouts';
+import {
+  createWorkoutInDB,
+  deleteWorkoutInDB,
+  fetchWorkoutsFromDB,
+  updateWorkoutInDB,
+} from '@/db/workouts';
 
 export function useWorkouts() {
   return useQuery({
@@ -50,6 +55,19 @@ export function useUpdateWorkout() {
     onSuccess: (updatedWorkout) => {
       queryClient.setQueryData(['workouts'], (previous: Workout[] | undefined) =>
         upsertWorkout(previous, updatedWorkout)
+      );
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+    },
+  });
+}
+
+export function useDeleteWorkout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteWorkoutInDB,
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueryData(['workouts'], (previous: Workout[] | undefined) =>
+        previous?.filter((w) => w.id !== deletedId) ?? []
       );
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
     },
