@@ -1,10 +1,16 @@
 export type WorkoutStatus = 'pending' | 'completed' | 'error';
 
+export type ExerciseType = 'run' | 'walk' | 'cycle' | 'swim';
+
 export type Workout = {
   id: number;
   title: string;
   description: string | null;
-  date: string;
+  date: Date;
   status: WorkoutStatus;
-  createdAt: string;
+  exerciseType: ExerciseType;
+  durationSec: number;
+  distanceMeters: number;
+  load: number;
+  createdAt: Date;
 };

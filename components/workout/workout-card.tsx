@@ -53,6 +53,8 @@ export type WorkoutCardProps = {
 };
 
 const ICON_SIZE = 8; // 2x smaller than before (was 24)
+const ICON_SIZE_MOBILE = 18; // icon glyph size for mobile
+const ICON_CONTAINER_MOBILE = 36; // touch-friendly container
 
 function IconWrap({
   onPress,
@@ -62,7 +64,14 @@ function IconWrap({
   children: React.ReactNode;
 }) {
   if (onPress) {
-    return <Pressable onPress={onPress}>{children}</Pressable>;
+    return (
+      <Pressable
+        onPress={onPress}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        {children}
+      </Pressable>
+    );
   }
   return <>{children}</>;
 }
@@ -88,6 +97,24 @@ export function WorkoutCard({
     { light: '#999999', dark: '#BBBBBB' },
     'icon'
   );
+  const cardBg = useThemeColor(
+    { light: '#ffffff', dark: '#1e1e1e' },
+    'background'
+  );
+  const cardBorder = useThemeColor(
+    { light: '#d4d4d4', dark: '#404040' },
+    'background'
+  );
+  const titleColor = useThemeColor(
+    { light: '#1f2937', dark: '#ffffff' },
+    'text'
+  );
+  const errorColor = '#E5484D';
+  const isMobile = Platform.OS !== 'web';
+  const iconSize = isMobile ? ICON_SIZE_MOBILE : ICON_SIZE;
+  const iconContainerSize = isMobile ? ICON_CONTAINER_MOBILE : 16;
+  const titleFontSize = isMobile ? 18 : undefined;
+  const titleMinHeight = isMobile ? 24 : undefined;
   const inputRef = useRef<TextInput>(null);
   const enterOpacity = useRef(new Animated.Value(state === 'input' ? 0 : 1)).current;
   const enterTranslate = useRef(new Animated.Value(state === 'input' ? 6 : 0)).current;
@@ -180,35 +207,77 @@ export function WorkoutCard({
     }).start();
   }, [state, statePulse]);
 
-  const titleContent = (
+  const titleWeight: TextStyle['fontWeight'] = isMobile ? '500' : '400';
+
+  const titleContent = isInput ? (
     <TextInput
       ref={inputRef}
-      value={isInput ? value : displayValue}
-      onChangeText={isInput ? onChangeText : undefined}
-      placeholder={isInput ? placeholder : undefined}
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
       placeholderTextColor={mutedColor}
-      editable={inputEditable}
+      editable
       multiline={false}
       underlineColorAndroid="transparent"
-      onKeyPress={isInput ? handleKeyPress : undefined}
-      className={`flex-1 text-sm font-normal py-0.5 px-0 min-h-6 border-0 ${state === 'error' ? 'text-red-500' : 'text-gray-800 dark:text-white'} ${inputLoading ? 'ml-0' : ''}`}
-      style={Platform.OS === 'web' ? ({ outlineWidth: 0, outline: 'none' } as TextStyle) : undefined}
-      {...(isInput ? restTextInputProps : {})}
+      onKeyPress={handleKeyPress}
+      style={[
+        {
+          color: titleColor,
+          fontSize: isMobile ? 18 : 14,
+          fontWeight: titleWeight,
+          paddingVertical: 2,
+          paddingHorizontal: 0,
+          minHeight: 24,
+          borderWidth: 0,
+        } as TextStyle,
+        Platform.OS === 'web' ? ({ outlineWidth: 0, outline: 'none' } as TextStyle) : undefined,
+      ].filter(Boolean) as TextStyle[]}
+      {...restTextInputProps}
     />
+  ) : (
+    <Text
+      style={{
+        color: state === 'error' ? errorColor : titleColor,
+        fontSize: isMobile ? 18 : 14,
+        fontWeight: titleWeight,
+      }}
+      numberOfLines={1}
+    >
+      {displayValue}
+    </Text>
   );
 
   const showSubtitleRow = !isInput && secondLineText != null;
 
   const rootClassName = [
-    'group rounded-lg border border-gray-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 py-1 px-4 justify-center shadow-sm',
+    isMobile
+      ? 'group rounded-xl justify-center'
+      : 'group rounded-lg border border-gray-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 py-1 px-4 justify-center shadow-sm',
     className,
   ].filter(Boolean).join(' ');
+
+  const mobileCardStyle = isMobile
+    ? {
+        backgroundColor: cardBg,
+        borderWidth: 1,
+        borderColor: cardBorder,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        minHeight: 72,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
+      }
+    : undefined;
 
   return (
     <Animated.View
       className={rootClassName}
       style={[
         style,
+        mobileCardStyle,
         {
           opacity: enterOpacity,
           transform: [
@@ -218,27 +287,33 @@ export function WorkoutCard({
         },
       ]}
     >
-      <View className="flex flex-col">
-        <View className="flex flex-row items-center gap-3">
-          <View className="w-4 items-center justify-center">
+      <View style={{ flexDirection: 'column', alignSelf: 'stretch' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, alignSelf: 'stretch' }}>
+          <View
+            className="items-center justify-center"
+            style={{ width: iconContainerSize, height: iconContainerSize }}
+          >
             <IconWrap onPress={onIconPress}>
               {state === 'pending' || state === 'input' ? (
                 <MaterialCommunityIcons
                   name="dots-circle"
-                  size={ICON_SIZE + 8}
+                  size={iconContainerSize}
                   color={mutedColor as string}
                 />
               ) : (
                 <View
-                  className={`w-4 h-4 rounded-full items-center justify-center ${
-                    state === 'completed'
-                      ? 'bg-green-600 dark:bg-green-500'
-                      : 'bg-red-500'
-                  }`}
+                  style={{
+                    width: iconContainerSize,
+                    height: iconContainerSize,
+                    borderRadius: iconContainerSize / 2,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: state === 'completed' ? '#16a34a' : '#E5484D',
+                  }}
                 >
                   <MaterialIcons
                     name={state === 'completed' ? 'check' : 'close'}
-                    size={ICON_SIZE}
+                    size={iconSize}
                     color="#fff"
                   />
                 </View>
@@ -252,34 +327,39 @@ export function WorkoutCard({
               className="mr-0"
             />
           )}
-          <View className="flex-1 min-w-0">
+          <View style={{ flex: 1, justifyContent: 'center' }}>
             {!isInput && onTextPress ? (
-              <Pressable className="flex-1 min-w-0" onPress={onTextPress}>
+              <Pressable onPress={onTextPress}>
                 {titleContent}
               </Pressable>
             ) : (
-              <View className="flex-1 min-w-0">{titleContent}</View>
+              titleContent
             )}
           </View>
           {onDelete && (
             <Pressable
               onPress={onDelete}
-              className="opacity-0 group-hover:opacity-100 transition-opacity self-center p-1 rounded active:opacity-70"
+              className={`${isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'} transition-opacity self-center rounded active:opacity-40`}
+              style={isMobile ? { padding: 8, marginRight: -8 } : { padding: 4 }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <MaterialIcons
-                name="delete"
-                size={20}
+                name="delete-outline"
+                size={isMobile ? 22 : 20}
                 color={mutedColor as string}
               />
             </Pressable>
           )}
         </View>
         {showSubtitleRow && (
-          <View className="flex flex-row items-center gap-3">
-            <View className="w-4" />
-            <View className="flex-1 min-w-0">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: isMobile ? 4 : 0 }}>
+            <View style={{ width: iconContainerSize }} />
+            <View style={{ flex: 1 }}>
               <Text
-                className="text-xs font-normal text-gray-500 dark:text-gray-400 opacity-80"
+                style={{
+                  fontSize: isMobile ? 14 : 12,
+                  color: mutedColor,
+                }}
                 numberOfLines={1}
               >
                 {secondLineText}

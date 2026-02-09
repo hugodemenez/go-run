@@ -1,9 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
-    FlatList,
-    Pressable,
-    useWindowDimensions,
-    View,
+  FlatList,
+  Platform,
+  Pressable,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -13,13 +14,13 @@ import { WorkoutCard } from '@/components/workout/workout-card';
 import { useCreateWorkout, useDeleteWorkout, useUpdateWorkout, useWorkouts } from '@/hooks/use-workouts';
 import type { Workout } from '@/types/workout';
 import {
-    DAY_LABELS,
-    getCurrentWeekIndex,
-    getWeekInfo,
-    getWeekNumber,
-    TOTAL_WEEKS,
-    weekIndexToStartDate,
-    type DayInfo,
+  DAY_LABELS,
+  getCurrentWeekIndex,
+  getWeekInfo,
+  getWeekNumber,
+  TOTAL_WEEKS,
+  weekIndexToStartDate,
+  type DayInfo,
 } from '@/utils/calendar';
 
 const COLUMNS = 8; // 7 days + 1 summary
@@ -50,6 +51,29 @@ function parseDateKey(dateKey: string) {
   const date = new Date(year, month - 1, day);
   if (Number.isNaN(date.getTime())) return null;
   return date;
+}
+
+function formatDurationFromSec(seconds: number): string {
+  if (seconds <= 0) return '0';
+  const totalMinutes = Math.round(seconds / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
+}
+
+function formatWorkoutSubtitle(workout: Workout): string | undefined {
+  const hasDuration = workout.durationSec > 0;
+  const hasDistance = workout.distanceMeters > 0;
+  if (!hasDuration && !hasDistance) return workout.description ?? undefined;
+  const parts: string[] = [];
+  if (hasDuration) parts.push(formatDurationFromSec(workout.durationSec));
+  if (hasDistance) {
+    const km = workout.distanceMeters / 1000;
+    parts.push(km >= 1 ? `${km.toFixed(1)}km` : `${workout.distanceMeters}m`);
+  }
+  return (parts.join(' · ') || workout.description) ?? undefined;
 }
 
 export type CellCardData = {
@@ -192,7 +216,7 @@ function DayCell({
               ? (workout?.title ?? cardData?.value ?? 'Workout')
               : undefined
           }
-          subtitle={workout?.description ?? undefined}
+          subtitle={workout ? formatWorkoutSubtitle(workout) : undefined}
           onIconPress={() => onCardCycleIcon(weekIndex, dayIndex, workout)}
           onTextPress={() => onCardEdit(weekIndex, dayIndex, workout)}
           onDelete={() => onCardDelete(weekIndex, dayIndex, workout)}
@@ -205,26 +229,111 @@ function DayCell({
   );
 }
 
+function SummaryMetricRow({
+  value,
+  targetLabel,
+  isMet,
+}: {
+  value: string;
+  targetLabel: string;
+  isMet: boolean;
+}) {
+  return (
+    <View className="flex-row items-center gap-1.5 py-0.5">
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          borderWidth: 1.5,
+          borderColor: isMet ? '#30A46C' : '#9CA3AF',
+          backgroundColor: 'transparent',
+        }}
+      />
+      <ThemedText
+        type="default"
+        className={`text-[11px] font-normal ${isMet ? 'text-foreground' : 'text-muted-foreground'}`}
+      >
+        {value} / {targetLabel}
+      </ThemedText>
+    </View>
+  );
+}
+
 function SummaryCell({
   weekIndex,
   cellWidth,
   fillWidth,
+  weekWorkouts,
 }: {
   weekIndex: number;
   cellWidth: number;
   fillWidth?: boolean;
+  weekWorkouts: Workout[];
 }) {
   const start = weekIndexToStartDate(weekIndex);
   const weekNum = getWeekNumber(start);
+  const year = start.getFullYear();
+
+  const { completedSec, completedMeters, completedLoad, totalSec, totalMeters, totalLoad } =
+    useMemo(() => {
+      let cSec = 0;
+      let cMeters = 0;
+      let cLoad = 0;
+      let tSec = 0;
+      let tMeters = 0;
+      let tLoad = 0;
+      weekWorkouts.forEach((w) => {
+        tSec += w.durationSec;
+        tMeters += w.distanceMeters;
+        tLoad += w.load;
+        if (w.status === 'completed') {
+          cSec += w.durationSec;
+          cMeters += w.distanceMeters;
+          cLoad += w.load;
+        }
+      });
+      return {
+        completedSec: cSec,
+        completedMeters: cMeters,
+        completedLoad: cLoad,
+        totalSec: tSec,
+        totalMeters: tMeters,
+        totalLoad: tLoad,
+      };
+    }, [weekWorkouts]);
+
+  const durationCompletedLabel = formatDurationFromSec(completedSec);
+  const durationTotalLabel = formatDurationFromSec(totalSec);
+  const distanceCompletedLabel =
+    completedMeters > 0 ? `${(completedMeters / 1000).toFixed(1)}km` : '0km';
+  const distanceTotalLabel = totalMeters > 0 ? `${(totalMeters / 1000).toFixed(1)}km` : '0km';
+  const loadCompletedLabel = completedLoad > 0 ? String(completedLoad) : '0';
+  const loadTotalLabel = totalLoad > 0 ? String(totalLoad) : '0';
 
   return (
     <View
-      className={`justify-center items-center border-r border-border bg-cell-summary ${fillWidth ? 'flex-1 min-w-0 self-stretch border-r-0' : ''}`}
+      className={`justify-start items-start border-r border-border bg-cell-summary px-2 py-2 ${fillWidth ? 'flex-1 min-w-0 self-stretch border-r-0' : ''}`}
       style={{ width: fillWidth ? undefined : cellWidth }}
     >
-      <ThemedText type="default" className="text-[11px] font-normal text-foreground">
-        W{weekNum}
+      <ThemedText type="default" className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5">
+        WEEK {weekNum} {year}
       </ThemedText>
+      <SummaryMetricRow
+        value={durationCompletedLabel}
+        targetLabel={durationTotalLabel}
+        isMet={completedSec > 0}
+      />
+      <SummaryMetricRow
+        value={distanceCompletedLabel}
+        targetLabel={distanceTotalLabel}
+        isMet={completedMeters > 0}
+      />
+      <SummaryMetricRow
+        value={loadCompletedLabel}
+        targetLabel={`${loadTotalLabel} Load`}
+        isMet={completedLoad > 0}
+      />
     </View>
   );
 }
@@ -241,6 +350,7 @@ function WeekRow({
   onCardDelete,
   singleColumn,
   workoutByDate,
+  onWeekHover,
 }: {
   weekIndex: number;
   cellWidth: number;
@@ -253,13 +363,30 @@ function WeekRow({
   onCardDelete: (weekIndex: number, dayIndex: number, workout?: Workout) => void;
   singleColumn: boolean;
   workoutByDate: Map<string, Workout>;
+  onWeekHover?: WeekHoverCallback;
 }) {
   const start = weekIndexToStartDate(weekIndex);
   const days = useMemo(() => getWeekInfo(start), [weekIndex]);
+  const weekWorkouts = useMemo(() => {
+    const list: Workout[] = [];
+    days.forEach((day) => {
+      const key = formatDateKey(day.date);
+      const w = workoutByDate.get(key);
+      if (w) list.push(w);
+    });
+    return list;
+  }, [days, workoutByDate]);
+  const isWeb = Platform.OS === 'web';
+  const hoverProps = isWeb && onWeekHover
+    ? {
+        onMouseEnter: () => onWeekHover(weekIndex),
+        onMouseLeave: () => onWeekHover(null),
+      }
+    : {};
 
   if (singleColumn) {
     return (
-      <View className="flex-row flex-col w-full overflow-hidden border-b-0">
+      <View className="flex-col w-full overflow-hidden border-b-0" {...hoverProps}>
         {days.map((day, i) => (
           <View key={i} className="w-full min-h-[192px] flex-col px-3 overflow-hidden">
             <DayCell
@@ -281,14 +408,18 @@ function WeekRow({
           </View>
         ))}
         <View className="w-full min-h-[192px] flex-col px-3 overflow-hidden">
-          <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} fillWidth />
+          <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} fillWidth weekWorkouts={weekWorkouts} />
         </View>
       </View>
     );
   }
 
   return (
-    <View className="flex-row border-b border-border" style={{ height: ROW_HEIGHT }}>
+    <View
+      className="flex-row border-b border-border"
+      style={{ height: ROW_HEIGHT }}
+      {...hoverProps}
+    >
       {days.map((day, i) => (
         <DayCell
           key={i}
@@ -306,7 +437,7 @@ function WeekRow({
           onCardDelete={onCardDelete}
         />
       ))}
-      <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} />
+      <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} weekWorkouts={weekWorkouts} />
     </View>
   );
 }
@@ -321,22 +452,59 @@ function getWeekIndicesAroundToday(): { weekIndices: number[]; scrollToIndex: nu
   return { weekIndices, scrollToIndex };
 }
 
-export function InfiniteCalendar() {
-  const { width } = useWindowDimensions();
+export type VisibleMonthCallback = (month: number, year: number) => void;
+export type VisibleWeekCallback = (weekIndex: number) => void;
+export type WeekHoverCallback = (weekIndex: number | null) => void;
+
+export type InfiniteCalendarRef = {
+  scrollToWeekIndex: (weekIndex: number) => void;
+};
+
+export const InfiniteCalendar = forwardRef<
+  InfiniteCalendarRef,
+  {
+    onVisibleMonthChange?: VisibleMonthCallback;
+    onVisibleWeekChange?: VisibleWeekCallback;
+    onWeekHover?: WeekHoverCallback;
+  }
+>(function InfiniteCalendar(
+  { onVisibleMonthChange, onVisibleWeekChange, onWeekHover } = {},
+  ref
+) {
+  const { width: windowWidth } = useWindowDimensions();
+  const [containerWidth, setContainerWidth] = useState(0);
+  const width = containerWidth > 0 ? containerWidth : windowWidth;
+  const flatListRef = useRef<FlatList<number>>(null);
   const [cellCards, setCellCards] = useState<Record<string, CellCardData>>({});
   const { weekIndices, scrollToIndex } = useMemo(getWeekIndicesAroundToday, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToWeekIndex(weekIndex: number) {
+        const index = weekIndices.indexOf(weekIndex);
+        if (index >= 0) {
+          flatListRef.current?.scrollToIndex({ index, animated: true });
+        }
+      },
+    }),
+    [weekIndices]
+  );
+  const onVisibleMonthChangeRef = React.useRef(onVisibleMonthChange);
+  onVisibleMonthChangeRef.current = onVisibleMonthChange;
+  const onVisibleWeekChangeRef = React.useRef(onVisibleWeekChange);
+  onVisibleWeekChangeRef.current = onVisibleWeekChange;
+  const onWeekHoverRef = React.useRef(onWeekHover);
+  onWeekHoverRef.current = onWeekHover;
   const { data: workouts } = useWorkouts();
-  console.log('workouts', workouts);
   const createWorkout = useCreateWorkout();
   const updateWorkout = useUpdateWorkout();
   const deleteWorkout = useDeleteWorkout();
   const workoutsByDate = useMemo(() => {
     const map = new Map<string, Workout>();
     workouts?.forEach((workout) => {
-      if (!workout.date) return;
-      const parsedDate = parseDateKey(workout.date) ?? new Date(workout.date);
-      if (Number.isNaN(parsedDate.getTime())) return;
-      const key = formatDateKey(parsedDate);
+      if (!workout.date || Number.isNaN(workout.date.getTime())) return;
+      const key = formatDateKey(workout.date);
       if (!map.has(key)) {
         map.set(key, workout);
       }
@@ -396,6 +564,10 @@ export function InfiniteCalendar() {
             description: existingWorkout.description,
             date: existingWorkout.date,
             status: existingWorkout.status,
+            exerciseType: existingWorkout.exerciseType,
+            durationSec: existingWorkout.durationSec,
+            distanceMeters: existingWorkout.distanceMeters,
+            load: existingWorkout.load,
           },
           {
             onSuccess: () => {
@@ -419,12 +591,18 @@ export function InfiniteCalendar() {
         ...prev,
         [key]: { ...prev[key], state: 'pending' },
       }));
+      const createDate = parseDateKey(current.dateKey);
+      if (!createDate) return;
       createWorkout.mutate(
         {
           title: trimmedValue,
           description: null,
-          date: current.dateKey,
+          date: createDate,
           status: 'pending',
+          exerciseType: 'run',
+          durationSec: 0,
+          distanceMeters: 0,
+          load: 0,
         },
         {
           onSuccess: () => {
@@ -469,6 +647,10 @@ export function InfiniteCalendar() {
           description: workout.description,
           date: workout.date,
           status: nextState,
+          exerciseType: workout.exerciseType,
+          durationSec: workout.durationSec,
+          distanceMeters: workout.distanceMeters,
+          load: workout.load,
         });
       }
     },
@@ -484,7 +666,7 @@ export function InfiniteCalendar() {
           [key]: {
             state: 'input',
             value: workout.title,
-            dateKey: workout.date,
+            dateKey: formatDateKey(workout.date),
           },
         }));
         return;
@@ -524,6 +706,10 @@ export function InfiniteCalendar() {
   const columns = isMobile ? 1 : COLUMNS;
   const cellWidth = (width - 1) / columns;
 
+  const handleWeekHover = useCallback((weekIndex: number | null) => {
+    onWeekHoverRef.current?.(weekIndex);
+  }, []);
+
   const renderItem = useCallback(
     ({ item }: { item: number }) => (
       <WeekRow
@@ -538,6 +724,7 @@ export function InfiniteCalendar() {
         onCardDelete={handleCardDelete}
         singleColumn={isMobile}
         workoutByDate={workoutsByDate}
+        onWeekHover={onWeekHover ? handleWeekHover : undefined}
       />
     ),
     [
@@ -551,18 +738,63 @@ export function InfiniteCalendar() {
       handleCardCycleIcon,
       handleCardEdit,
       handleCardDelete,
+      handleWeekHover,
+      onWeekHover,
     ]
   );
 
   const keyExtractor = useCallback((item: number) => `week-${item}`, []);
 
+  const viewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 10,
+    minimumViewTime: 0,
+  });
+  const viewabilityConfig = viewabilityConfigRef.current;
+
+  const onViewableItemsChangedRef = useRef(
+    (info: { viewableItems: { item: number }[] }) => {
+      const monthCb = onVisibleMonthChangeRef.current;
+      const weekCb = onVisibleWeekChangeRef.current;
+      if (info.viewableItems.length === 0) return;
+      const firstWeekIndex = info.viewableItems[0].item;
+      const start = weekIndexToStartDate(firstWeekIndex);
+      if (monthCb) monthCb(start.getMonth(), start.getFullYear());
+      if (weekCb) weekCb(firstWeekIndex);
+    }
+  );
+  const onViewableItemsChanged = useCallback(
+    (info: { viewableItems: { item: number }[] }) => {
+      onViewableItemsChangedRef.current(info);
+    },
+    []
+  );
+
+  useEffect(() => {
+    const monthCb = onVisibleMonthChangeRef.current;
+    const weekCb = onVisibleWeekChangeRef.current;
+    const initialWeekIndex = weekIndices[scrollToIndex];
+    const start = weekIndexToStartDate(initialWeekIndex);
+    if (monthCb) monthCb(start.getMonth(), start.getFullYear());
+    if (weekCb) weekCb(initialWeekIndex);
+  }, [scrollToIndex, weekIndices]);
+
+  const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
+  const onScrollToIndexFailed = useCallback(
+    (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
+      const wait = new Promise((resolve) => setTimeout(resolve, 100));
+      wait.then(() => {
+        flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+      });
+    },
+    []
+  );
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
-      length: ROW_HEIGHT,
-      offset: ROW_HEIGHT * index,
+      length: rowHeight,
+      offset: rowHeight * index,
       index,
     }),
-    []
+    [rowHeight]
   );
 
   const ListHeader = useMemo(
@@ -597,15 +829,22 @@ export function InfiniteCalendar() {
   );
 
   return (
-    <ThemedView className="flex-1">
+    <ThemedView
+      className="flex-1"
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
       <FlatList
+        ref={flatListRef}
         data={weekIndices}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        getItemLayout={isMobile ? undefined : getItemLayout}
-        initialScrollIndex={isMobile ? undefined : scrollToIndex}
+        getItemLayout={getItemLayout}
+        initialScrollIndex={isMobile ? 0 : scrollToIndex}
+        onScrollToIndexFailed={onScrollToIndexFailed}
         ListHeaderComponent={ListHeader}
         stickyHeaderIndices={isMobile ? undefined : [0]}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
         className="flex-1 bg-header"
         contentContainerStyle={isMobile ? { width: '100%' } : undefined}
         showsVerticalScrollIndicator
@@ -613,5 +852,5 @@ export function InfiniteCalendar() {
       />
     </ThemedView>
   );
-}
+});
 

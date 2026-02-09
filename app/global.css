@@ -7,18 +7,18 @@
 @theme {
   /* Light mode (default) */
   --color-background: #fff;
-  --color-foreground: #11181C;
+  --color-foreground: #11181c;
   --color-muted: #687076;
   --color-tint: #0a7ea4;
-  --color-border: #E0E0E0;
+  --color-border: #e0e0e0;
   /* Calendar / UI surfaces */
-  --color-cell: #FCFCFC;
-  --color-cell-today: #F8FBF9;
-  --color-cell-summary: #F8F8F8;
-  --color-header: #FCFCFC;
-  --color-placeholder-border: #E0E0E0;
-  --color-day-number: #ADADAD;
-  --color-day-accent: #30A46C;
+  --color-cell: #fcfcfc;
+  --color-cell-today: #f8fbf9;
+  --color-cell-summary: #f8f8f8;
+  --color-header: #fcfcfc;
+  --color-placeholder-border: #e0e0e0;
+  --color-day-number: #adadad;
+  --color-day-accent: #30a46c;
   --color-tooltip: #1a1a1a;
   --color-tooltip-foreground: #ffffff;
 }
@@ -26,17 +26,17 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --color-background: #151718;
-    --color-foreground: #ECEDEE;
-    --color-muted: #9BA1A6;
+    --color-foreground: #ecedee;
+    --color-muted: #9ba1a6;
     --color-tint: #fff;
-    --color-border: #3A3A3C;
+    --color-border: #3a3a3c;
     --color-cell: #111;
     --color-cell-today: #111512;
     --color-cell-summary: #141414;
     --color-header: #111;
-    --color-placeholder-border: #3A3A3C;
-    --color-day-number: #AAAAAA;
-    --color-day-accent: #30A46C;
+    --color-placeholder-border: #3a3a3c;
+    --color-day-number: #aaaaaa;
+    --color-day-accent: #30a46c;
     --color-tooltip: #2a2a2a;
     --color-tooltip-foreground: #ffffff;
   }

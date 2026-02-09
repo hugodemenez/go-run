@@ -20,7 +20,7 @@ export function useWorkouts() {
 
 function sortWorkouts(workouts: Workout[]) {
   return workouts.slice().sort((a, b) => {
-    const dateCompare = b.date.localeCompare(a.date);
+    const dateCompare = b.date.getTime() - a.date.getTime();
     if (dateCompare !== 0) return dateCompare;
     return b.id - a.id;
   });
