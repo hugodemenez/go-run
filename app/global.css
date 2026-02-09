@@ -3,6 +3,11 @@
 @import "tailwindcss/utilities.css";
 @import "nativewind/theme";
 
+::selection {
+  background-color: #295B44;
+  color: #fff;
+}
+
 /* App theme (matches constants/theme.ts) – use bg-background, text-foreground, etc. */
 @theme {
   /* Light mode (default) */

@@ -318,6 +318,7 @@ export function BarChart({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const barLayoutsRef = useRef<Record<number, BarLayout>>({});
   const chartLayoutRef = useRef<LayoutRectangle | null>(null);
+  const chartViewRef = useRef<View>(null);
   const chartHeightRef = useRef(BAR_CHART_HEIGHT);
   chartHeightRef.current = BAR_CHART_HEIGHT;
   const dragStartIndexRef = useRef<number | null>(null);
@@ -401,35 +402,46 @@ export function BarChart({
     
     if (!barLayout || !chartLayout || !point) return;
 
-    // Calculate absolute position of the bar
-    const triggerLayout: LayoutRectangle = {
-      x: chartLayout.x + barLayout.x + 16, // +16 for container padding
-      y: chartLayout.y + barLayout.y,
-      width: barLayout.width,
-      height: barLayout.height,
+    const displayTooltip = (triggerLayout: LayoutRectangle, centered: boolean) => {
+      const stacked = point.stacked;
+      if (stacked) {
+        showTooltipRef.current({
+          label: point.label,
+          value: '',
+          lines: [
+            { label: 'Completed', value: formatDuration(stacked.completed ?? 0) },
+            { label: 'Pending', value: formatDuration(stacked.pending ?? 0) },
+            { label: 'Missed', value: formatDuration(stacked.error ?? 0) },
+          ],
+          triggerLayout,
+          centered,
+        });
+      } else {
+        const total = getPointTotal(point);
+        showTooltipRef.current({
+          label: point.label,
+          value: `${total} ${total === 1 ? 'event' : 'events'}`,
+          triggerLayout,
+          centered,
+        });
+      }
     };
 
-    const stacked = point.stacked;
-    if (stacked) {
-      showTooltipRef.current({
-        label: point.label,
-        value: '',
-        lines: [
-          { label: 'Completed', value: formatDuration(stacked.completed ?? 0) },
-          { label: 'Pending', value: formatDuration(stacked.pending ?? 0) },
-          { label: 'Missed', value: formatDuration(stacked.error ?? 0) },
-        ],
-        triggerLayout,
+    // On mobile, use measureInWindow for absolute screen coordinates and center in chart
+    if (!isWeb && chartViewRef.current) {
+      chartViewRef.current.measureInWindow((x, y, w, h) => {
+        displayTooltip({ x, y, width: w, height: h }, true);
       });
     } else {
-      const total = getPointTotal(point);
-      showTooltipRef.current({
-        label: point.label,
-        value: `${total} ${total === 1 ? 'event' : 'events'}`,
-        triggerLayout,
-      });
+      // Web: position beside the bar
+      displayTooltip({
+        x: chartLayout.x + barLayout.x + 16, // +16 for container padding
+        y: chartLayout.y + barLayout.y,
+        width: barLayout.width,
+        height: barLayout.height,
+      }, false);
     }
-  }, []);
+  }, [isWeb]);
 
   const showTooltipForRange = useCallback((start: number, end: number) => {
     const chartLayout = chartLayoutRef.current;
@@ -451,48 +463,59 @@ export function BarChart({
           ? getRangeLabel(rangeStart, rangeEnd)
           : `${points[rangeStart].label}–${points[rangeEnd].label}`;
 
-    const minX = Math.min(startLayout.x, endLayout.x);
-    const maxX = Math.max(startLayout.x + startLayout.width, endLayout.x + endLayout.width);
-
-    const triggerLayout: LayoutRectangle = {
-      x: chartLayout.x + minX + 16,
-      y: chartLayout.y,
-      width: Math.max(1, maxX - minX),
-      height: chartHeightRef.current,
+    const displayTooltip = (triggerLayout: LayoutRectangle, centered: boolean) => {
+      if (hasStacked) {
+        const aggregated = rangePoints.reduce(
+          (acc, point) => {
+            const s = point.stacked;
+            if (s) {
+              acc.completed += s.completed ?? 0;
+              acc.pending += s.pending ?? 0;
+              acc.error += s.error ?? 0;
+            }
+            return acc;
+          },
+          { completed: 0, pending: 0, error: 0 }
+        );
+        showTooltipRef.current({
+          label,
+          value: '',
+          lines: [
+            { label: 'Completed', value: formatDuration(aggregated.completed) },
+            { label: 'Pending', value: formatDuration(aggregated.pending) },
+            { label: 'Missed', value: formatDuration(aggregated.error) },
+          ],
+          triggerLayout,
+          centered,
+        });
+      } else {
+        const total = rangePoints.reduce((sum, point) => sum + getPointTotal(point), 0);
+        showTooltipRef.current({
+          label,
+          value: `${total} ${total === 1 ? 'event' : 'events'}`,
+          triggerLayout,
+          centered,
+        });
+      }
     };
 
-    if (hasStacked) {
-      const aggregated = rangePoints.reduce(
-        (acc, point) => {
-          const s = point.stacked;
-          if (s) {
-            acc.completed += s.completed ?? 0;
-            acc.pending += s.pending ?? 0;
-            acc.error += s.error ?? 0;
-          }
-          return acc;
-        },
-        { completed: 0, pending: 0, error: 0 }
-      );
-      showTooltipRef.current({
-        label,
-        value: '',
-        lines: [
-          { label: 'Completed', value: formatDuration(aggregated.completed) },
-          { label: 'Pending', value: formatDuration(aggregated.pending) },
-          { label: 'Missed', value: formatDuration(aggregated.error) },
-        ],
-        triggerLayout,
+    // On mobile, use measureInWindow for absolute screen coordinates and center in chart
+    if (!isWeb && chartViewRef.current) {
+      chartViewRef.current.measureInWindow((x, y, w, h) => {
+        displayTooltip({ x, y, width: w, height: h }, true);
       });
     } else {
-      const total = rangePoints.reduce((sum, point) => sum + getPointTotal(point), 0);
-      showTooltipRef.current({
-        label,
-        value: `${total} ${total === 1 ? 'event' : 'events'}`,
-        triggerLayout,
-      });
+      // Web: position beside the range
+      const minX = Math.min(startLayout.x, endLayout.x);
+      const maxX = Math.max(startLayout.x + startLayout.width, endLayout.x + endLayout.width);
+      displayTooltip({
+        x: chartLayout.x + minX + 16,
+        y: chartLayout.y,
+        width: Math.max(1, maxX - minX),
+        height: chartHeightRef.current,
+      }, false);
     }
-  }, [getRangeLabel]);
+  }, [getRangeLabel, isWeb]);
 
   // Show tooltip for externally highlighted index (e.g. calendar scroll/hover) when no local hover/selection
   useEffect(() => {
@@ -678,6 +701,7 @@ export function BarChart({
     !showMinimap || isExpanded ? (
       <View style={styles.mainChartWrap}>
         <View
+          ref={chartViewRef}
           style={[styles.chart, { width: mainChartWidth, height: BAR_CHART_HEIGHT }]}
           onLayout={handleChartLayout}
           {...(isWeb ? { onMouseLeave: handleChartMouseLeave } : {})}

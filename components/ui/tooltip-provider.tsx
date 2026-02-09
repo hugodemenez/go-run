@@ -8,6 +8,7 @@ import {
   LayoutRectangle,
   Platform,
   StyleSheet,
+  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -19,14 +20,16 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { ThemedText } from '@/components/themed-text';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 const isWeb = Platform.OS === 'web';
-const TOOLTIP_MIN_HEIGHT = isWeb ? 40 : 36;
-const TOOLTIP_MIN_WIDTH = isWeb ? 84 : 72;
+const TOOLTIP_PADDING_V = isWeb ? 9 : 5;
+const TOOLTIP_LABEL_LINE_HEIGHT = isWeb ? 18 : 12;
+const TOOLTIP_LINES_GAP = isWeb ? 3 : 3;
+const TOOLTIP_MIN_HEIGHT = isWeb ? 42 : 36;
+const TOOLTIP_MIN_WIDTH = isWeb ? 90 : 72;
 const TOOLTIP_GAP = isWeb ? 6 : 4;
-const TOOLTIP_LINE_HEIGHT = isWeb ? 20 : 15;
+const TOOLTIP_LINE_HEIGHT = isWeb ? 21 : 15;
 
 type TooltipSide = 'left' | 'right';
 
@@ -39,6 +42,8 @@ type TooltipData = {
   lines?: TooltipLine[];
   triggerLayout: LayoutRectangle;
   side?: TooltipSide;
+  /** When true, tooltip is centered within triggerLayout instead of positioned beside it. Used on mobile. */
+  centered?: boolean;
 };
 
 type TooltipContextType = {
@@ -63,7 +68,7 @@ type TooltipProviderProps = {
 export function TooltipProvider({ children }: TooltipProviderProps) {
   const { width: screenWidth } = useWindowDimensions();
   const tooltipBg = useThemeColor(
-    { light: '#ffffff', dark: '#2a2a2a' },
+    { light: '#ffffff', dark: '#000000' },
     'background'
   );
   const tooltipFg = useThemeColor(
@@ -71,7 +76,7 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
     'text'
   );
   const tooltipBorder = useThemeColor(
-    { light: 'rgba(0,0,0,0.08)', dark: 'transparent' },
+    { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.15)' },
     'background'
   );
 
@@ -102,7 +107,7 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
     if (data.lines && data.lines.length > 0) {
       return Math.max(
         TOOLTIP_MIN_HEIGHT,
-        5 + 12 + 3 + data.lines.length * TOOLTIP_LINE_HEIGHT + 5
+        TOOLTIP_PADDING_V + TOOLTIP_LABEL_LINE_HEIGHT + TOOLTIP_LINES_GAP + data.lines.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING_V
       );
     }
     return TOOLTIP_MIN_HEIGHT;
@@ -113,6 +118,18 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
       const { triggerLayout } = data;
       const tooltipWidth = TOOLTIP_MIN_WIDTH;
       const tooltipHeight = getTooltipHeight(data);
+
+      // Centered mode: overlay tooltip in the center of the trigger area (used on mobile)
+      if (data.centered) {
+        const x = triggerLayout.x + triggerLayout.width / 2 - tooltipWidth / 2;
+        const y = triggerLayout.y + triggerLayout.height / 2 - tooltipHeight / 2;
+        return {
+          x: Math.max(8, Math.min(x, screenWidth - tooltipWidth - 8)),
+          y,
+          side: 'right' as TooltipSide,
+          width: tooltipWidth,
+        };
+      }
 
       // Calculate available space on each side
       const spaceOnRight =
@@ -268,7 +285,7 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
   const tooltipHeight = hasLines
     ? Math.max(
         TOOLTIP_MIN_HEIGHT,
-        5 + 12 + 3 + lines!.length * TOOLTIP_LINE_HEIGHT + 5
+        TOOLTIP_PADDING_V + TOOLTIP_LABEL_LINE_HEIGHT + TOOLTIP_LINES_GAP + lines!.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING_V
       )
     : TOOLTIP_MIN_HEIGHT;
 
@@ -280,7 +297,7 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
           styles.tooltip,
           {
             backgroundColor: tooltipBg,
-            height: tooltipHeight,
+            minHeight: tooltipHeight,
             borderWidth: 1,
             borderColor: tooltipBorder,
           },
@@ -288,38 +305,26 @@ export function TooltipProvider({ children }: TooltipProviderProps) {
         ]}
         pointerEvents="none"
       >
-        <ThemedText
-          className="!text-[length:inherit] !leading-[inherit]"
-          style={[styles.tooltipLabel, { color: tooltipFg }]}
-        >
+        <Text style={[styles.tooltipLabel, { color: tooltipFg }]}>
           {label}
-        </ThemedText>
+        </Text>
         {hasLines ? (
           <View style={styles.tooltipLines}>
             {lines!.map((line) => (
               <View key={line.label} style={styles.tooltipLineRow}>
-                <ThemedText
-                  className="!text-[length:inherit] !leading-[inherit]"
-                  style={[styles.tooltipLineLabel, { color: tooltipFg }]}
-                >
+                <Text style={[styles.tooltipLineLabel, { color: tooltipFg }]}>
                   {line.label}
-                </ThemedText>
-                <ThemedText
-                  className="!text-[length:inherit] !leading-[inherit]"
-                  style={[styles.tooltipLineValue, { color: tooltipFg }]}
-                >
+                </Text>
+                <Text style={[styles.tooltipLineValue, { color: tooltipFg }]}>
                   {line.value}
-                </ThemedText>
+                </Text>
               </View>
             ))}
           </View>
         ) : (
-          <ThemedText
-            className="!text-[length:inherit] !leading-[inherit]"
-            style={[styles.tooltipValue, { color: tooltipFg }]}
-          >
+          <Text style={[styles.tooltipValue, { color: tooltipFg }]}>
             {value}
-          </ThemedText>
+          </Text>
         )}
       </Animated.View>
     </TooltipContext.Provider>
@@ -333,33 +338,35 @@ const styles = StyleSheet.create({
     left: 0,
     minHeight: TOOLTIP_MIN_HEIGHT,
     minWidth: TOOLTIP_MIN_WIDTH,
-    borderRadius: isWeb ? 10 : 8,
-    paddingHorizontal: isWeb ? 18 : 10,
-    paddingVertical: isWeb ? 10 : 5,
+    borderRadius: isWeb ? 9 : 8,
+    paddingHorizontal: isWeb ? 12 : 10,
+    paddingVertical: isWeb ? 9 : 5,
     justifyContent: 'center',
     alignItems: 'flex-start',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: isWeb ? 0.12 : 0.25,
-    shadowRadius: isWeb ? 8 : 4,
+    shadowOpacity: isWeb ? 0.1 : 0.25,
+    shadowRadius: isWeb ? 4 : 4,
     elevation: 5,
     zIndex: 9999,
   },
   tooltipLabel: {
-    fontSize: isWeb ? 11 : 10,
+    fontSize: isWeb ? 13.5 : 10,
+    fontFamily: isWeb ? 'ui-monospace, monospace' : Platform.select({ ios: 'Menlo', android: 'monospace' }),
     fontWeight: isWeb ? '300' : '400',
     opacity: isWeb ? 0.6 : 0.85,
     textAlign: 'left',
-    lineHeight: isWeb ? 14 : undefined,
+    lineHeight: isWeb ? 18 : undefined,
   },
   tooltipValue: {
-    fontSize: isWeb ? 12 : 11,
+    fontSize: isWeb ? 15 : 11,
+    fontFamily: isWeb ? 'ui-monospace, monospace' : Platform.select({ ios: 'Menlo', android: 'monospace' }),
     fontWeight: '400',
     textAlign: 'left',
-    lineHeight: isWeb ? 16 : undefined,
+    lineHeight: isWeb ? 20 : undefined,
   },
   tooltipLines: {
-    marginTop: isWeb ? 4 : 3,
+    marginTop: isWeb ? 3 : 3,
     alignSelf: 'stretch',
   },
   tooltipLineRow: {
@@ -367,17 +374,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     height: TOOLTIP_LINE_HEIGHT,
-    gap: isWeb ? 16 : 12,
+    gap: isWeb ? 12 : 12,
   },
   tooltipLineLabel: {
-    fontSize: isWeb ? 11 : 10,
+    fontSize: isWeb ? 13.5 : 10,
+    fontFamily: isWeb ? 'ui-monospace, monospace' : Platform.select({ ios: 'Menlo', android: 'monospace' }),
     fontWeight: isWeb ? '300' : '400',
     opacity: isWeb ? 0.6 : 0.9,
-    lineHeight: isWeb ? 14 : undefined,
+    lineHeight: isWeb ? 18 : undefined,
   },
   tooltipLineValue: {
-    fontSize: isWeb ? 11 : 10,
+    fontSize: isWeb ? 13.5 : 10,
+    fontFamily: isWeb ? 'ui-monospace, monospace' : Platform.select({ ios: 'Menlo', android: 'monospace' }),
     fontWeight: '400',
-    lineHeight: isWeb ? 14 : undefined,
+    lineHeight: isWeb ? 18 : undefined,
   },
 });

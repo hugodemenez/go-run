@@ -28,8 +28,8 @@ const MOBILE_BREAKPOINT = 600;
 
 const ROW_HEIGHT = 192;
 const HEADER_HEIGHT = 40;
-const MOBILE_CELL_HEIGHT = 192;
-const MOBILE_ROW_HEIGHT = COLUMNS * MOBILE_CELL_HEIGHT; // one "row" = full week stacked
+const MOBILE_CELL_HEIGHT = 136;
+const MOBILE_ROW_HEIGHT = COLUMNS * MOBILE_CELL_HEIGHT;
 
 function cellKey(weekIndex: number, dayIndex: number) {
   return `${weekIndex}-${dayIndex}`;
@@ -84,7 +84,7 @@ export type CellCardData = {
 
 const STATUS_ORDER: Workout['status'][] = ['pending', 'completed', 'error'];
 
-function DayCell({
+const DayCell = React.memo(function DayCell({
   day,
   cellWidth,
   weekIndex,
@@ -138,7 +138,7 @@ function DayCell({
 
   return (
     <Pressable
-      className={`justify-center items-center border-r border-border ${day.isToday ? 'bg-cell-today' : 'bg-cell'} ${showDayLabel ? 'border-r-0' : ''} justify-start items-start pt-2 px-2 ${showDayLabel ? 'pb-2 min-h-[192px] self-stretch' : ''} ${fillWidth ? 'flex-1 min-w-0 self-stretch' : ''}`}
+      className={`justify-center items-center border-r border-border ${day.isToday ? 'bg-cell-today' : 'bg-cell'} ${showDayLabel ? 'border-r-0' : ''} justify-start items-start pt-2 px-2 ${showDayLabel ? 'pb-2 min-h-[136px] self-stretch' : ''} ${fillWidth ? 'flex-1 min-w-0 self-stretch' : ''}`}
       style={{ width: fillWidth ? undefined : cellWidth }}
       onPress={() => {
         if (workout == null) {
@@ -147,7 +147,7 @@ function DayCell({
       }}
     >
       <View
-        className={`min-w-0 h-8 justify-center items-start self-start ${showDayLabel ? 'flex-row items-center' : ''} ${day.isToday && !showDayLabel ? 'flex-row items-center px-1.5' : ''}`}
+        className={`min-w-0 h-8 justify-baseline items-start self-start ${showDayLabel ? 'flex-row items-center' : ''} ${day.isToday && !showDayLabel ? 'flex-row items-center px-1.5' : ''}`}
       >
         {day.isToday && !showDayLabel && (
           <IconSymbol name="calendar" size={14} color="#30A46C" style={{ marginRight: 4 }} />
@@ -223,13 +223,13 @@ function DayCell({
         />
       )}
       {showMobilePlaceholder && (
-        <View className="mt-2 self-stretch flex-1 min-h-20 border-2 border-dashed border-placeholder-border rounded-lg" />
+        <View className="mt-2 self-stretch h-20 border-2 border-dashed border-placeholder-border rounded-lg" />
       )}
     </Pressable>
   );
-}
+});
 
-function SummaryMetricRow({
+const SummaryMetricRow = React.memo(function SummaryMetricRow({
   value,
   targetLabel,
   isMet,
@@ -258,9 +258,9 @@ function SummaryMetricRow({
       </ThemedText>
     </View>
   );
-}
+});
 
-function SummaryCell({
+const SummaryCell = React.memo(function SummaryCell({
   weekIndex,
   cellWidth,
   fillWidth,
@@ -336,9 +336,9 @@ function SummaryCell({
       />
     </View>
   );
-}
+});
 
-function WeekRow({
+const WeekRow = React.memo(function WeekRow({
   weekIndex,
   cellWidth,
   cellCards,
@@ -388,7 +388,7 @@ function WeekRow({
     return (
       <View className="flex-col w-full overflow-hidden border-b-0" {...hoverProps}>
         {days.map((day, i) => (
-          <View key={i} className="w-full min-h-[192px] flex-col px-3 overflow-hidden">
+          <View key={i} className="w-full min-h-[136px] flex-col px-3 overflow-hidden">
             <DayCell
               day={day}
               cellWidth={cellWidth}
@@ -407,7 +407,7 @@ function WeekRow({
             />
           </View>
         ))}
-        <View className="w-full min-h-[192px] flex-col px-3 overflow-hidden">
+        <View className="w-full min-h-[136px] flex-col px-3 overflow-hidden">
           <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} fillWidth weekWorkouts={weekWorkouts} />
         </View>
       </View>
@@ -440,7 +440,19 @@ function WeekRow({
       <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} weekWorkouts={weekWorkouts} />
     </View>
   );
-}
+}, (prev, next) => {
+  if (prev.weekIndex !== next.weekIndex) return false;
+  if (prev.cellWidth !== next.cellWidth) return false;
+  if (prev.singleColumn !== next.singleColumn) return false;
+  if (prev.workoutByDate !== next.workoutByDate) return false;
+  if (prev.onWeekHover !== next.onWeekHover) return false;
+  // Only compare cell cards relevant to this week
+  for (let i = 0; i < 7; i++) {
+    const key = cellKey(prev.weekIndex, i);
+    if (prev.cellCards[key] !== next.cellCards[key]) return false;
+  }
+  return true;
+});
 
 /** Week indices centered on the current week so "today" is always in the list and we can scroll to it. */
 function getWeekIndicesAroundToday(): { weekIndices: number[]; scrollToIndex: number } {
@@ -511,6 +523,19 @@ export const InfiniteCalendar = forwardRef<
     });
     return map;
   }, [workouts]);
+
+  // Refs for stable callback references (avoid recreating handlers on every render)
+  const cellCardsRef = useRef(cellCards);
+  cellCardsRef.current = cellCards;
+  const workoutsByDateRef = useRef(workoutsByDate);
+  workoutsByDateRef.current = workoutsByDate;
+  const createWorkoutRef = useRef(createWorkout);
+  createWorkoutRef.current = createWorkout;
+  const updateWorkoutRef = useRef(updateWorkout);
+  updateWorkoutRef.current = updateWorkout;
+  const deleteWorkoutRef = useRef(deleteWorkout);
+  deleteWorkoutRef.current = deleteWorkout;
+
   const handleCellPress = useCallback((weekIndex: number, dayIndex: number) => {
     const key = cellKey(weekIndex, dayIndex);
     const start = weekIndexToStartDate(weekIndex);
@@ -540,7 +565,7 @@ export const InfiniteCalendar = forwardRef<
   const handleCardSubmit = useCallback(
     (weekIndex: number, dayIndex: number) => {
       const key = cellKey(weekIndex, dayIndex);
-      const current = cellCards[key];
+      const current = cellCardsRef.current[key];
       if (!current || current.state !== 'input') return;
       const trimmedValue = current.value.trim();
       if (trimmedValue === '') {
@@ -551,13 +576,13 @@ export const InfiniteCalendar = forwardRef<
         });
         return;
       }
-      const existingWorkout = workoutsByDate.get(current.dateKey);
+      const existingWorkout = workoutsByDateRef.current.get(current.dateKey);
       if (existingWorkout) {
         setCellCards((prev) => ({
           ...prev,
           [key]: { ...prev[key], state: existingWorkout.status },
         }));
-        updateWorkout.mutate(
+        updateWorkoutRef.current.mutate(
           {
             id: existingWorkout.id,
             title: trimmedValue,
@@ -593,7 +618,7 @@ export const InfiniteCalendar = forwardRef<
       }));
       const createDate = parseDateKey(current.dateKey);
       if (!createDate) return;
-      createWorkout.mutate(
+      createWorkoutRef.current.mutate(
         {
           title: trimmedValue,
           description: null,
@@ -621,10 +646,10 @@ export const InfiniteCalendar = forwardRef<
         }
       );
     },
-    [cellCards, createWorkout, updateWorkout, workoutsByDate]
+    []
   );
 
-   const handleCardCycleIcon = useCallback(
+  const handleCardCycleIcon = useCallback(
     (weekIndex: number, dayIndex: number, workout?: Workout) => {
       const key = cellKey(weekIndex, dayIndex);
       setCellCards((prev) => {
@@ -641,7 +666,7 @@ export const InfiniteCalendar = forwardRef<
       if (workout) {
         const currentIndex = STATUS_ORDER.indexOf(workout.status);
         const nextState = STATUS_ORDER[(currentIndex + 1) % STATUS_ORDER.length];
-        updateWorkout.mutate({
+        updateWorkoutRef.current.mutate({
           id: workout.id,
           title: workout.title,
           description: workout.description,
@@ -654,7 +679,7 @@ export const InfiniteCalendar = forwardRef<
         });
       }
     },
-    [updateWorkout]
+    []
   );
 
   const handleCardEdit = useCallback(
@@ -684,7 +709,7 @@ export const InfiniteCalendar = forwardRef<
     (weekIndex: number, dayIndex: number, workout?: Workout) => {
       const key = cellKey(weekIndex, dayIndex);
       if (workout) {
-        deleteWorkout.mutate(workout.id, {
+        deleteWorkoutRef.current.mutate(workout.id, {
           onSuccess: () => {
             setCellCards((prev) => {
               const { [key]: _, ...rest } = prev;
@@ -699,7 +724,7 @@ export const InfiniteCalendar = forwardRef<
         return rest;
       });
     },
-    [deleteWorkout]
+    []
   );
 
   const isMobile = width < MOBILE_BREAKPOINT;
@@ -849,6 +874,11 @@ export const InfiniteCalendar = forwardRef<
         contentContainerStyle={isMobile ? { width: '100%' } : undefined}
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
+        windowSize={5}
+        maxToRenderPerBatch={3}
+        initialNumToRender={5}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        updateCellsBatchingPeriod={50}
       />
     </ThemedView>
   );
