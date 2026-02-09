@@ -99,6 +99,9 @@ const DayCell = React.memo(function DayCell({
   onCardDelete,
   showDayLabel,
   fillWidth,
+  onDragStartFromCell,
+  onDragEndFromCell,
+  onDropOnCell,
 }: {
   day: DayInfo;
   cellWidth: number;
@@ -114,6 +117,9 @@ const DayCell = React.memo(function DayCell({
   onCardDelete: (weekIndex: number, dayIndex: number, workout?: Workout) => void;
   showDayLabel?: boolean;
   fillWidth?: boolean;
+  onDragStartFromCell?: (weekIndex: number, dayIndex: number, workout: Workout) => void;
+  onDragEndFromCell?: () => void;
+  onDropOnCell?: (weekIndex: number, dayIndex: number) => void;
 }) {
   const dayLabel = showDayLabel ? DAY_LABELS[day.date.getDay()] : null;
 
@@ -129,6 +135,53 @@ const DayCell = React.memo(function DayCell({
     workout != null;
   const showMobilePlaceholder = showDayLabel && !hasCardContent;
 
+  // Web drag-and-drop: drop target via direct DOM manipulation
+  const [isDragOver, setIsDragOver] = useState(false);
+  const cellRef = useRef<View>(null);
+  const onDropOnCellRef = useRef(onDropOnCell);
+  onDropOnCellRef.current = onDropOnCell;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const node = cellRef.current as any;
+    if (!node) return;
+
+    let counter = 0;
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    };
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      counter++;
+      if (counter === 1) setIsDragOver(true);
+    };
+    const handleDragLeave = () => {
+      counter--;
+      if (counter === 0) setIsDragOver(false);
+    };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      counter = 0;
+      setIsDragOver(false);
+      onDropOnCellRef.current?.(weekIndex, dayIndex);
+    };
+
+    node.addEventListener('dragover', handleDragOver);
+    node.addEventListener('dragenter', handleDragEnter);
+    node.addEventListener('dragleave', handleDragLeave);
+    node.addEventListener('drop', handleDrop);
+
+    return () => {
+      node.removeEventListener('dragover', handleDragOver);
+      node.removeEventListener('dragenter', handleDragEnter);
+      node.removeEventListener('dragleave', handleDragLeave);
+      node.removeEventListener('drop', handleDrop);
+    };
+  }, [weekIndex, dayIndex]);
+
   const cardState: CellCardData['state'] =
     cardData?.state === 'input'
       ? 'input'
@@ -138,7 +191,8 @@ const DayCell = React.memo(function DayCell({
 
   return (
     <Pressable
-      className={`justify-center items-center border-r border-border ${day.isToday ? 'bg-cell-today' : 'bg-cell'} ${showDayLabel ? 'border-r-0' : ''} justify-start items-start pt-2 px-2 ${showDayLabel ? 'pb-2 min-h-[136px] self-stretch' : ''} ${fillWidth ? 'flex-1 min-w-0 self-stretch' : ''}`}
+      ref={cellRef}
+      className={`justify-center items-center border-r border-border ${day.isToday ? 'bg-cell-today' : 'bg-cell'} ${showDayLabel ? 'border-r-0' : ''} justify-start items-start pt-2 px-2 ${showDayLabel ? 'pb-2 min-h-[136px] self-stretch' : ''} ${fillWidth ? 'flex-1 min-w-0 self-stretch' : ''} ${isDragOver ? 'bg-blue-100 dark:bg-blue-900/30' : ''}`}
       style={{ width: fillWidth ? undefined : cellWidth }}
       onPress={() => {
         if (workout == null) {
@@ -220,6 +274,13 @@ const DayCell = React.memo(function DayCell({
           onIconPress={() => onCardCycleIcon(weekIndex, dayIndex, workout)}
           onTextPress={() => onCardEdit(weekIndex, dayIndex, workout)}
           onDelete={() => onCardDelete(weekIndex, dayIndex, workout)}
+          draggable={!!workout}
+          onDragStart={
+            workout && onDragStartFromCell
+              ? () => onDragStartFromCell(weekIndex, dayIndex, workout)
+              : undefined
+          }
+          onDragEnd={onDragEndFromCell}
         />
       )}
       {showMobilePlaceholder && (
@@ -351,6 +412,9 @@ const WeekRow = React.memo(function WeekRow({
   singleColumn,
   workoutByDate,
   onWeekHover,
+  onDragStartFromCell,
+  onDragEndFromCell,
+  onDropOnCell,
 }: {
   weekIndex: number;
   cellWidth: number;
@@ -364,6 +428,9 @@ const WeekRow = React.memo(function WeekRow({
   singleColumn: boolean;
   workoutByDate: Map<string, Workout>;
   onWeekHover?: WeekHoverCallback;
+  onDragStartFromCell?: (weekIndex: number, dayIndex: number, workout: Workout) => void;
+  onDragEndFromCell?: () => void;
+  onDropOnCell?: (weekIndex: number, dayIndex: number) => void;
 }) {
   const start = weekIndexToStartDate(weekIndex);
   const days = useMemo(() => getWeekInfo(start), [weekIndex]);
@@ -404,6 +471,9 @@ const WeekRow = React.memo(function WeekRow({
               onCardEdit={onCardEdit}
               onCardDelete={onCardDelete}
               showDayLabel
+              onDragStartFromCell={onDragStartFromCell}
+              onDragEndFromCell={onDragEndFromCell}
+              onDropOnCell={onDropOnCell}
             />
           </View>
         ))}
@@ -435,6 +505,9 @@ const WeekRow = React.memo(function WeekRow({
           onCardCycleIcon={onCardCycleIcon}
           onCardEdit={onCardEdit}
           onCardDelete={onCardDelete}
+          onDragStartFromCell={onDragStartFromCell}
+          onDragEndFromCell={onDragEndFromCell}
+          onDropOnCell={onDropOnCell}
         />
       ))}
       <SummaryCell weekIndex={weekIndex} cellWidth={cellWidth} weekWorkouts={weekWorkouts} />
@@ -446,6 +519,9 @@ const WeekRow = React.memo(function WeekRow({
   if (prev.singleColumn !== next.singleColumn) return false;
   if (prev.workoutByDate !== next.workoutByDate) return false;
   if (prev.onWeekHover !== next.onWeekHover) return false;
+  if (prev.onDragStartFromCell !== next.onDragStartFromCell) return false;
+  if (prev.onDragEndFromCell !== next.onDragEndFromCell) return false;
+  if (prev.onDropOnCell !== next.onDropOnCell) return false;
   // Only compare cell cards relevant to this week
   for (let i = 0; i < 7; i++) {
     const key = cellKey(prev.weekIndex, i);
@@ -535,6 +611,64 @@ export const InfiniteCalendar = forwardRef<
   updateWorkoutRef.current = updateWorkout;
   const deleteWorkoutRef = useRef(deleteWorkout);
   deleteWorkoutRef.current = deleteWorkout;
+
+  // --- Drag-and-drop state ---
+  const dragDataRef = useRef<{ workout: Workout; sourceDateKey: string } | null>(null);
+
+  const handleDragStartFromCell = useCallback(
+    (weekIndex: number, dayIndex: number, workout: Workout) => {
+      const start = weekIndexToStartDate(weekIndex);
+      const date = new Date(start);
+      date.setDate(start.getDate() + dayIndex);
+      dragDataRef.current = {
+        workout,
+        sourceDateKey: formatDateKey(date),
+      };
+    },
+    []
+  );
+
+  const handleDragEndFromCell = useCallback(() => {
+    dragDataRef.current = null;
+  }, []);
+
+  const handleWorkoutDrop = useCallback(
+    (weekIndex: number, dayIndex: number) => {
+      const dragData = dragDataRef.current;
+      if (!dragData) return;
+
+      const start = weekIndexToStartDate(weekIndex);
+      const targetDate = new Date(start);
+      targetDate.setDate(start.getDate() + dayIndex);
+      const targetDateKey = formatDateKey(targetDate);
+
+      // Don't drop on the same date
+      if (targetDateKey === dragData.sourceDateKey) return;
+
+      // Don't drop on a cell that already has a workout
+      if (workoutsByDateRef.current.has(targetDateKey)) return;
+
+      // Don't drop on a cell that has an active card (e.g. user is typing)
+      const targetCellKey = cellKey(weekIndex, dayIndex);
+      if (cellCardsRef.current[targetCellKey]) return;
+
+      const { workout } = dragData;
+      updateWorkoutRef.current.mutate({
+        id: workout.id,
+        title: workout.title,
+        description: workout.description,
+        date: targetDate,
+        status: workout.status,
+        exerciseType: workout.exerciseType,
+        durationSec: workout.durationSec,
+        distanceMeters: workout.distanceMeters,
+        load: workout.load,
+      });
+
+      dragDataRef.current = null;
+    },
+    []
+  );
 
   const handleCellPress = useCallback((weekIndex: number, dayIndex: number) => {
     const key = cellKey(weekIndex, dayIndex);
@@ -750,6 +884,9 @@ export const InfiniteCalendar = forwardRef<
         singleColumn={isMobile}
         workoutByDate={workoutsByDate}
         onWeekHover={onWeekHover ? handleWeekHover : undefined}
+        onDragStartFromCell={handleDragStartFromCell}
+        onDragEndFromCell={handleDragEndFromCell}
+        onDropOnCell={handleWorkoutDrop}
       />
     ),
     [
@@ -765,6 +902,9 @@ export const InfiniteCalendar = forwardRef<
       handleCardDelete,
       handleWeekHover,
       onWeekHover,
+      handleDragStartFromCell,
+      handleDragEndFromCell,
+      handleWorkoutDrop,
     ]
   );
 

@@ -50,6 +50,12 @@ export type WorkoutCardProps = {
   onTextPress?: () => void;
   /** Optional handler when the delete button is pressed. When set, a delete button is shown on card hover. */
   onDelete?: () => void;
+  /** Web: whether the card can be dragged (HTML5 Drag and Drop) */
+  draggable?: boolean;
+  /** Web: called when drag starts */
+  onDragStart?: () => void;
+  /** Web: called when drag ends */
+  onDragEnd?: () => void;
 };
 
 const ICON_SIZE = 8; // 2x smaller than before (was 24)
@@ -92,6 +98,9 @@ export function WorkoutCard({
   onIconPress,
   onTextPress,
   onDelete,
+  draggable: isDraggable = false,
+  onDragStart: onDragStartProp,
+  onDragEnd: onDragEndProp,
 }: WorkoutCardProps) {
   const mutedColor = useThemeColor(
     { light: '#999999', dark: '#BBBBBB' },
@@ -272,8 +281,49 @@ export function WorkoutCard({
       }
     : undefined;
 
+  // Web-only: set up HTML5 Drag and Drop via direct DOM manipulation
+  // (React Native Web filters out unknown props like `draggable` / `onDragStart`)
+  const rootRef = useRef<View>(null);
+  const onDragStartRef = useRef(onDragStartProp);
+  onDragStartRef.current = onDragStartProp;
+  const onDragEndRef = useRef(onDragEndProp);
+  onDragEndRef.current = onDragEndProp;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const node = rootRef.current as any;
+    if (!node) return;
+
+    if (!isDraggable || isInput) {
+      node.removeAttribute?.('draggable');
+      node.style && (node.style.cursor = '');
+      return;
+    }
+
+    node.setAttribute('draggable', 'true');
+    node.style && (node.style.cursor = 'grab');
+
+    const handleDragStart = (e: DragEvent) => {
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      onDragStartRef.current?.();
+    };
+    const handleDragEnd = () => onDragEndRef.current?.();
+
+    node.addEventListener('dragstart', handleDragStart);
+    node.addEventListener('dragend', handleDragEnd);
+
+    return () => {
+      node.removeAttribute?.('draggable');
+      node.style && (node.style.cursor = '');
+      node.removeEventListener('dragstart', handleDragStart);
+      node.removeEventListener('dragend', handleDragEnd);
+    };
+  }, [isDraggable, isInput]);
+
   return (
     <Animated.View
+      ref={rootRef}
       className={rootClassName}
       style={[
         style,
