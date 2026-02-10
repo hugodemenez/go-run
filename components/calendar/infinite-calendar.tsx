@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Platform,
@@ -6,6 +6,15 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ReAnimated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -22,6 +31,7 @@ import {
   weekIndexToStartDate,
   type DayInfo,
 } from '@/utils/calendar';
+import type { SharedValue } from 'react-native-reanimated';
 
 const COLUMNS = 8; // 7 days + 1 summary
 const MOBILE_BREAKPOINT = 600;
@@ -30,6 +40,21 @@ const ROW_HEIGHT = 192;
 const HEADER_HEIGHT = 40;
 const MOBILE_CELL_HEIGHT = 136;
 const MOBILE_ROW_HEIGHT = COLUMNS * MOBILE_CELL_HEIGHT;
+
+// --- Mobile drag-and-drop context ---
+type MobileDragContextValue = {
+  dragX: SharedValue<number>;
+  dragY: SharedValue<number>;
+  containerScreenX: SharedValue<number>;
+  containerScreenY: SharedValue<number>;
+  fingerOffsetX: SharedValue<number>;
+  fingerOffsetY: SharedValue<number>;
+  /** Only pass serializable primitives from worklets – no Date / complex objects */
+  startMobileDrag: (weekIndex: number, dayIndex: number, absX: number, absY: number) => void;
+  endMobileDrag: (absX: number, absY: number) => void;
+};
+
+const MobileDragContext = React.createContext<MobileDragContextValue | null>(null);
 
 function cellKey(weekIndex: number, dayIndex: number) {
   return `${weekIndex}-${dayIndex}`;
@@ -189,6 +214,30 @@ const DayCell = React.memo(function DayCell({
         ? workout.status
         : (cardData?.state ?? 'pending');
 
+  // Mobile drag gesture (long press + pan)
+  // IMPORTANT: only pass serializable primitives (numbers) through runOnJS – never pass
+  // objects containing Date instances as they cannot be transferred between UI/JS threads.
+  const mobileDragCtx = useContext(MobileDragContext);
+  const panGesture = useMemo(() => {
+    if (Platform.OS === 'web' || !workout || cardData?.state === 'input' || !mobileDragCtx) return null;
+
+    const { startMobileDrag, endMobileDrag, dragX, dragY, containerScreenX: csx, containerScreenY: csy, fingerOffsetX: foX, fingerOffsetY: foY } = mobileDragCtx;
+
+    return Gesture.Pan()
+      .activateAfterLongPress(400)
+      .onStart((e) => {
+        runOnJS(startMobileDrag)(weekIndex, dayIndex, e.absoluteX, e.absoluteY);
+      })
+      .onUpdate((e) => {
+        // Convert screen-absolute to container-relative, accounting for finger offset
+        dragX.value = e.absoluteX - csx.value - foX.value;
+        dragY.value = e.absoluteY - csy.value - foY.value;
+      })
+      .onEnd((e) => {
+        runOnJS(endMobileDrag)(e.absoluteX, e.absoluteY);
+      });
+  }, [workout?.id, weekIndex, dayIndex, cardData?.state, mobileDragCtx]);
+
   return (
     <Pressable
       ref={cellRef}
@@ -243,7 +292,50 @@ const DayCell = React.memo(function DayCell({
           </>
         )}
       </View>
-      {hasCardContent && (
+      {hasCardContent && panGesture ? (
+        <GestureDetector gesture={panGesture}>
+          <View className="self-stretch">
+            <WorkoutCard
+              state={cardState}
+              workout={workout}
+              value={cardData?.state === 'input' ? cardData.value : undefined}
+              onChangeText={
+                cardData?.state === 'input'
+                  ? (text) => onCardChangeText(weekIndex, dayIndex, text)
+                  : undefined
+              }
+              placeholder="Describe workout"
+              className="mt-2 self-stretch px-2"
+              textInputProps={
+                cardData?.state === 'input'
+                  ? {
+                      autoFocus: true,
+                      onSubmitEditing: () => onCardSubmit(weekIndex, dayIndex),
+                      onBlur: () => onCardSubmit(weekIndex, dayIndex),
+                      returnKeyType: 'done',
+                    }
+                  : undefined
+              }
+              title={
+                cardState !== 'input'
+                  ? (workout?.title ?? cardData?.value ?? 'Workout')
+                  : undefined
+              }
+              subtitle={workout ? formatWorkoutSubtitle(workout) : undefined}
+              onIconPress={() => onCardCycleIcon(weekIndex, dayIndex, workout)}
+              onTextPress={() => onCardEdit(weekIndex, dayIndex, workout)}
+              onDelete={() => onCardDelete(weekIndex, dayIndex, workout)}
+              draggable={!!workout}
+              onDragStart={
+                workout && onDragStartFromCell
+                  ? () => onDragStartFromCell(weekIndex, dayIndex, workout)
+                  : undefined
+              }
+              onDragEnd={onDragEndFromCell}
+            />
+          </View>
+        </GestureDetector>
+      ) : hasCardContent ? (
         <WorkoutCard
           state={cardState}
           workout={workout}
@@ -282,7 +374,7 @@ const DayCell = React.memo(function DayCell({
           }
           onDragEnd={onDragEndFromCell}
         />
-      )}
+      ) : null}
       {showMobilePlaceholder && (
         <View className="mt-2 self-stretch h-20 border-2 border-dashed border-placeholder-border rounded-lg" />
       )}
@@ -670,6 +762,166 @@ export const InfiniteCalendar = forwardRef<
     []
   );
 
+  // --- Mobile drag-and-drop state ---
+  // These track the floating card's position in container-relative coordinates.
+  const mobileDragX = useSharedValue(0);
+  const mobileDragY = useSharedValue(0);
+  const mobileDragOpacity = useSharedValue(0);
+  const mobileDragScale = useSharedValue(1);
+  // Container screen offset (shared values so the animated style can read them on the UI thread)
+  const containerScreenX = useSharedValue(0);
+  const containerScreenY = useSharedValue(0);
+  const containerWidthSV = useSharedValue(0);
+  // Offset from touch point to the card's top-left so the card stays pinned under the finger
+  const mobileDragFingerOffsetX = useSharedValue(0);
+  const mobileDragFingerOffsetY = useSharedValue(0);
+
+  const [mobileDragWorkout, setMobileDragWorkout] = useState<Workout | null>(null);
+  const mobileDragWorkoutRef = useRef<Workout | null>(null); // ref avoids stale closure in gesture callbacks
+  const [mobileDragScrollEnabled, setMobileDragScrollEnabled] = useState(true);
+  const scrollOffsetRef = useRef(0);
+  const containerLayoutRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const mobileDragSourceRef = useRef<{ sourceDateKey: string } | null>(null);
+  const weekIndicesRef = useRef(weekIndices);
+  weekIndicesRef.current = weekIndices;
+
+  const handleMobileDragStart = useCallback(
+    (weekIndex: number, dayIndex: number, absX: number, absY: number) => {
+      const start = weekIndexToStartDate(weekIndex);
+      const date = new Date(start);
+      date.setDate(start.getDate() + dayIndex);
+      const dateKey = formatDateKey(date);
+
+      // Look up workout from the ref (avoids passing non-serializable objects through runOnJS)
+      const workout = workoutsByDateRef.current.get(dateKey);
+      if (!workout) return;
+
+      mobileDragSourceRef.current = { sourceDateKey: dateKey };
+      mobileDragWorkoutRef.current = workout;
+
+      // Convert screen-absolute touch to container-relative position
+      const csx = containerScreenX.value;
+      const csy = containerScreenY.value;
+      const cardW = containerWidthSV.value - 48; // approximate card width (container minus padding)
+      // Place the floating card centered on the touch X, with top near the touch Y
+      mobileDragFingerOffsetX.value = cardW / 2;
+      mobileDragFingerOffsetY.value = 36; // finger sits ~36px below the card top
+      mobileDragX.value = absX - csx - mobileDragFingerOffsetX.value;
+      mobileDragY.value = absY - csy - mobileDragFingerOffsetY.value;
+      mobileDragOpacity.value = withTiming(1, { duration: 150 });
+      mobileDragScale.value = withSpring(1.05);
+
+      setMobileDragWorkout(workout);
+      setMobileDragScrollEnabled(false);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    },
+    [mobileDragX, mobileDragY, mobileDragOpacity, mobileDragScale, containerScreenX, containerScreenY, containerWidthSV, mobileDragFingerOffsetX, mobileDragFingerOffsetY]
+  );
+
+  const handleMobileDragEnd = useCallback(
+    (absX: number, absY: number) => {
+      const currentWorkout = mobileDragWorkoutRef.current;
+
+      // Calculate which cell the finger is over
+      const layout = containerLayoutRef.current;
+      const scrollY = scrollOffsetRef.current;
+      const relativeY = absY - layout.y + scrollY;
+      const relativeX = absX - layout.x;
+      const isMobileLayout = layout.width < MOBILE_BREAKPOINT;
+
+      let targetWeekRowIndex: number;
+      let targetDayIndex: number;
+
+      if (isMobileLayout) {
+        // Mobile single-column: each week row = 8 cells stacked vertically
+        targetWeekRowIndex = Math.floor(relativeY / MOBILE_ROW_HEIGHT);
+        targetDayIndex = Math.floor((relativeY % MOBILE_ROW_HEIGHT) / MOBILE_CELL_HEIGHT);
+      } else {
+        // Desktop multi-column
+        const adjustedY = relativeY - HEADER_HEIGHT;
+        targetWeekRowIndex = Math.floor(adjustedY / ROW_HEIGHT);
+        const cols = COLUMNS;
+        const cw = layout.width / cols;
+        targetDayIndex = Math.floor(relativeX / cw);
+      }
+
+      // Validate indices
+      const wkIndices = weekIndicesRef.current;
+      if (
+        targetDayIndex >= 0 &&
+        targetDayIndex < 7 &&
+        targetWeekRowIndex >= 0 &&
+        targetWeekRowIndex < wkIndices.length
+      ) {
+        const targetWeekIndex = wkIndices[targetWeekRowIndex];
+        const targetStart = weekIndexToStartDate(targetWeekIndex);
+        const targetDate = new Date(targetStart);
+        targetDate.setDate(targetStart.getDate() + targetDayIndex);
+        const targetDateKey = formatDateKey(targetDate);
+        const source = mobileDragSourceRef.current;
+
+        if (
+          source &&
+          currentWorkout &&
+          targetDateKey !== source.sourceDateKey &&
+          !workoutsByDateRef.current.has(targetDateKey)
+        ) {
+          const targetCellK = cellKey(targetWeekIndex, targetDayIndex);
+          if (!cellCardsRef.current[targetCellK]) {
+            updateWorkoutRef.current.mutate({
+              id: currentWorkout.id,
+              title: currentWorkout.title,
+              description: currentWorkout.description,
+              date: targetDate,
+              status: currentWorkout.status,
+              exerciseType: currentWorkout.exerciseType,
+              durationSec: currentWorkout.durationSec,
+              distanceMeters: currentWorkout.distanceMeters,
+              load: currentWorkout.load,
+            });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }
+      }
+
+      // Animate out and clean up
+      mobileDragOpacity.value = withTiming(0, { duration: 150 });
+      mobileDragScale.value = withSpring(1);
+      mobileDragSourceRef.current = null;
+      mobileDragWorkoutRef.current = null;
+      setMobileDragWorkout(null);
+      setMobileDragScrollEnabled(true);
+    },
+    [mobileDragOpacity, mobileDragScale]
+  );
+
+  const mobileDragCtx = useMemo<MobileDragContextValue>(
+    () => ({
+      dragX: mobileDragX,
+      dragY: mobileDragY,
+      containerScreenX,
+      containerScreenY,
+      fingerOffsetX: mobileDragFingerOffsetX,
+      fingerOffsetY: mobileDragFingerOffsetY,
+      startMobileDrag: handleMobileDragStart,
+      endMobileDrag: handleMobileDragEnd,
+    }),
+    [mobileDragX, mobileDragY, containerScreenX, containerScreenY, mobileDragFingerOffsetX, mobileDragFingerOffsetY, handleMobileDragStart, handleMobileDragEnd]
+  );
+
+  const mobileDragFloatingStyle = useAnimatedStyle(() => {
+    const cardW = Math.max(containerWidthSV.value - 48, 160);
+    return {
+      position: 'absolute' as const,
+      left: mobileDragX.value,
+      top: mobileDragY.value,
+      width: cardW,
+      opacity: mobileDragOpacity.value,
+      transform: [{ scale: mobileDragScale.value }],
+      zIndex: 9999,
+    };
+  });
+
   const handleCellPress = useCallback((weekIndex: number, dayIndex: number) => {
     const key = cellKey(weekIndex, dayIndex);
     const start = weekIndexToStartDate(weekIndex);
@@ -993,34 +1245,98 @@ export const InfiniteCalendar = forwardRef<
     [isMobile, cellWidth]
   );
 
+  // Track scroll offset for mobile drop target calculation
+  const handleScroll = useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+    },
+    []
+  );
+
+  // Track container position on screen
+  const containerRef = useRef<View>(null);
+  const measureContainer = useCallback(() => {
+    if (Platform.OS !== 'web' && containerRef.current) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (containerRef.current as any).measureInWindow?.(
+        (x: number, y: number, w: number, h: number) => {
+          containerScreenX.value = x;
+          containerScreenY.value = y;
+          containerWidthSV.value = w;
+          containerLayoutRef.current = { x, y, width: w, height: h };
+        }
+      );
+    }
+  }, [containerScreenX, containerScreenY, containerWidthSV]);
+
+  const handleContainerLayout = useCallback(
+    (e: { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } }) => {
+      setContainerWidth(e.nativeEvent.layout.width);
+      containerLayoutRef.current = e.nativeEvent.layout;
+      // Also measure screen position for the floating card
+      measureContainer();
+    },
+    [measureContainer]
+  );
+
   return (
-    <ThemedView
-      className="flex-1"
-      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
-    >
-      <FlatList
-        ref={flatListRef}
-        data={weekIndices}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        getItemLayout={getItemLayout}
-        initialScrollIndex={isMobile ? 0 : scrollToIndex}
-        onScrollToIndexFailed={onScrollToIndexFailed}
-        ListHeaderComponent={ListHeader}
-        stickyHeaderIndices={isMobile ? undefined : [0]}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        className="flex-1 bg-header"
-        contentContainerStyle={isMobile ? { width: '100%' } : undefined}
-        showsVerticalScrollIndicator
-        keyboardShouldPersistTaps="handled"
-        windowSize={5}
-        maxToRenderPerBatch={3}
-        initialNumToRender={5}
-        removeClippedSubviews={Platform.OS !== 'web'}
-        updateCellsBatchingPeriod={50}
-      />
-    </ThemedView>
+    <MobileDragContext.Provider value={mobileDragCtx}>
+      <ThemedView
+        ref={containerRef}
+        className="flex-1"
+        onLayout={handleContainerLayout}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={weekIndices}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          getItemLayout={getItemLayout}
+          initialScrollIndex={isMobile ? 0 : scrollToIndex}
+          onScrollToIndexFailed={onScrollToIndexFailed}
+          ListHeaderComponent={ListHeader}
+          stickyHeaderIndices={isMobile ? undefined : [0]}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          className="flex-1 bg-header"
+          contentContainerStyle={isMobile ? { width: '100%' } : undefined}
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+          windowSize={5}
+          maxToRenderPerBatch={3}
+          initialNumToRender={5}
+          removeClippedSubviews={Platform.OS !== 'web'}
+          updateCellsBatchingPeriod={50}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          scrollEnabled={mobileDragScrollEnabled}
+        />
+
+        {/* Mobile drag floating card overlay */}
+        {mobileDragWorkout && Platform.OS !== 'web' && (
+          <ReAnimated.View
+            style={[
+              mobileDragFloatingStyle,
+              {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.25,
+                shadowRadius: 16,
+                elevation: 12,
+              },
+            ]}
+            pointerEvents="none"
+          >
+            <WorkoutCard
+              state={mobileDragWorkout.status}
+              workout={mobileDragWorkout}
+              title={mobileDragWorkout.title}
+              subtitle={formatWorkoutSubtitle(mobileDragWorkout)}
+            />
+          </ReAnimated.View>
+        )}
+      </ThemedView>
+    </MobileDragContext.Provider>
   );
 });
 
